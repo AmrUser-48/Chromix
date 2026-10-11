@@ -2,7 +2,10 @@
 import base64
 import hashlib
 import json
+import os
 from pathlib import Path
+import shutil
+import subprocess
 import tempfile
 import unittest
 from unittest import mock
@@ -193,6 +196,173 @@ class Linux155GeneratorsTest(unittest.TestCase):
         self.assertNotIn(b'/usr/bin/tsc', variables)
         self.assertNotIn("scripts/build/typescript/ts_library.py", generators.SOURCE155_REPAIRS)
         self.assertIn("scripts/build/typescript/ts_library.py", generators.SOURCE_REPAIRS)
+
+    def test_vars_repaired_bytes_are_independently_derived(self):
+        name = "scripts/build/typescript/typescript_vars.gni"
+        raw = SCRIPTS[name].encode()
+        expected = raw.replace(
+            b'  tsc_binary = "/usr/bin/tsc"',
+            b'  tsc_binary = devtools_location_prepend + "node_modules/typescript/lib/tsc.js"')
+        expected = expected.replace(b'# Standard TypeScript library definitions', b'''if (host_os == "linux") {
+  tsc_node = "//third_party/node/linux/node-linux-${host_cpu}/bin/node"
+  tsc_command = [
+    rebase_path(tsc_node, root_build_dir),
+    rebase_path(tsc_binary, root_build_dir),
+  ]
+} else {
+  tsc_command = [ rebase_path(tsc_binary, root_build_dir) ]
+}
+
+# Standard TypeScript library definitions''')
+        expected = expected.replace(b'typescript_base_inputs = [ tsc_binary ]', b'''typescript_base_inputs = [ tsc_binary ]
+if (host_os == "linux") {
+  typescript_base_inputs += [ tsc_node ]
+}''')
+        self.assertEqual(hashlib.sha256(raw).hexdigest(),
+                         "aa17ae85e0be06e7c593f1e8ff947b0795565b311b8938753366836085f88572")
+        self.assertEqual(hashlib.sha256(expected).hexdigest(),
+                         "36650c33dd69e4cab6d51fa25b77170fe9a34a0fa2874afdc5a2b80044354a73")
+        _, changes = generators.source_plan(self.src, pins=generators.PINS155)
+        actual = next(after for path, _, after, _ in changes
+                      if path == generators.DEVTOOLS + "/" + name)
+        self.assertEqual(actual, expected)
+
+    def _gn_fixture(self):
+        # GN is opt-in locally; an explicit invalid GN path must fail, not skip.
+        binary = os.environ.get("GN") or shutil.which("gn")
+        if not binary:
+            self.skipTest("real GN required: set GN to a GN executable or put gn on PATH")
+        self.gn = str(Path(binary).resolve())
+        _, changes = generators.source_plan(self.src, pins=generators.PINS155)
+        for name, _, after, _ in changes:
+            (self.src / name).write_bytes(after)
+        stubs = {
+            ".gn": 'buildconfig = "//BUILDCONFIG.gn"\n',
+            "build/toolchain/rbe.gni": 'declare_args() { use_remoteexec = false }\n',
+            generators.DEVTOOLS + "/scripts/build/ninja/vars.gni": (
+                f'devtools_location = "{generators.DEVTOOLS}"\n'
+                'devtools_location_prepend = "//$devtools_location/"\n'
+                'build_with_chromium = false\n'
+                'devtools_bundle = false\n'),
+            generators.DEVTOOLS + "/scripts/build/typescript/ts_type_check.gni": "",
+            "toolchain/BUILD.gn": '''toolchain("test") {
+  tool("stamp") {
+    command = "unused-stamp {{output}}"
+  }
+  tool("copy") {
+    command = "unused-copy {{source}} {{output}}"
+  }
+}
+''',
+            "BUILD.gn": f'''import("//{generators.DEVTOOLS}/scripts/build/typescript/typescript_vars.gni")
+import("//{generators.DEVTOOLS}/scripts/build/typescript/typescript.gni")
+proof = {{
+  binary = tsc_binary
+  command = tsc_command
+  inputs = typescript_base_inputs
+  standard_inputs = typescript_standard_lib_dts_inputs
+}}
+write_file("$root_build_dir/vars.json", proof, "json")
+ts_library("emit") {{
+  sources = [ "emit.ts" ]
+}}
+ts_library("check") {{
+  sources = [ "check.ts" ]
+  no_js_emit = true
+}}
+group("default") {{
+  deps = [ ":emit", ":check" ]
+}}
+''',
+        }
+        for name, text in stubs.items():
+            path = self.src / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text)
+
+    def _run_gn(self, *args):
+        # No host node/tsc or other PATH tool may satisfy this generation test.
+        environment = dict(os.environ, PATH="")
+        return subprocess.run([self.gn, *args], cwd=self.src, env=environment,
+                              text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                              timeout=30, check=False)
+
+    def _gn_host(self, host_os, host_cpu):
+        # host_os/host_cpu are GN builtins, not undeclared --args overrides.
+        (self.src / "BUILDCONFIG.gn").write_text(
+            f'host_os = "{host_os}"\nhost_cpu = "{host_cpu}"\n'
+            'set_default_toolchain("//toolchain:test")\n')
+
+    def test_real_gn_linux_and_nonlinux_commands_and_action_inputs(self):
+        self._gn_fixture()
+        hosts = (("linux", "x64"), ("linux", "arm64"), ("mac", "x64"),
+                 ("mac", "arm64"), ("win", "x64"), ("win", "arm64"))
+        for host_os, host_cpu in hosts:
+            for remote in (False, True):
+                with self.subTest(host_os=host_os, host_cpu=host_cpu, remote=remote):
+                    self._gn_host(host_os, host_cpu)
+                    output = f"out/{host_os}-{host_cpu}-{remote}"
+                    result = self._run_gn("gen", output, "--fail-on-unused-args",
+                                          f"--args=use_remoteexec={str(remote).lower()}")
+                    self.assertEqual(result.returncode, 0, result.stdout)
+                    proof = json.loads((self.src / output / "vars.json").read_text())
+                    if host_os == "linux":
+                        binary = "//" + generators.DEVTOOLS + "/node_modules/typescript/lib/tsc.js"
+                        node = f"//third_party/node/linux/node-linux-{host_cpu}/bin/node"
+                        command_paths = [node, binary]
+                        inputs = [binary, node]
+                    else:
+                        platform = ("windows-amd64" if host_os == "win" else
+                                    "mac-arm64" if host_cpu == "arm64" else "mac-amd64")
+                        binary = f"//third_party/typescript/{platform}/src/lib/tsc"
+                        if host_os == "win":
+                            binary += ".exe"
+                        command_paths = inputs = [binary]
+                    command = ["../../" + path[2:] for path in command_paths]
+                    self.assertEqual(proof["binary"], binary)
+                    self.assertEqual(proof["command"], command)
+                    self.assertEqual(proof["inputs"], inputs + (proof["standard_inputs"] if remote else []))
+                    description = self._run_gn("desc", output, "*", "--format=json")
+                    self.assertEqual(description.returncode, 0, description.stdout)
+                    targets = json.loads(description.stdout)
+                    actions = {label: target for label, target in targets.items()
+                               if target["type"] == "action"}
+                    self.assertEqual(set(actions), {"//:emit-dts", "//:emit_checked",
+                                                    "//:check-dts", "//:check_checked"})
+                    for label, action in actions.items():
+                        with self.subTest(action=label):
+                            response = action["response_file_contents"]
+                            start = response.index("--") + 1
+                            self.assertEqual(response[start:start + len(command)], command)
+                            self.assertTrue(response[start + len(command)].startswith("-"))
+                            self.assertTrue(set(proof["inputs"]).issubset(action["inputs"]))
+                            self.assertNotIn("/usr/bin/tsc", response)
+                            if host_os != "linux":
+                                self.assertFalse(any("/node-linux-" in path for path in action["inputs"]))
+
+    def test_real_gn_reproduces_nonempty_list_regression(self):
+        self._gn_fixture()
+        path = self.src / generators.DEVTOOLS / "scripts/build/typescript/typescript_vars.gni"
+        fixed = path.read_text()
+        broken = fixed.replace('if (host_os == "linux") {\n  tsc_node =',
+                               'tsc_command = [ rebase_path(tsc_binary, root_build_dir) ]\n'
+                               'if (host_os == "linux") {\n  tsc_node =', 1)
+        broken = broken.replace('''  tsc_command = [
+    rebase_path(tsc_node, root_build_dir),
+    rebase_path(tsc_binary, root_build_dir),
+  ]
+} else {
+  tsc_command = [ rebase_path(tsc_binary, root_build_dir) ]''',
+                                 '  tsc_command = [ rebase_path(tsc_node, root_build_dir) ] + tsc_command', 1)
+        self.assertEqual(hashlib.sha256(broken.encode()).hexdigest(),
+                         "f4f451e28e6ee82ba690438fd270f3c66d130443d4f61195fa36116479baaeea")
+        path.write_text(broken)
+        for cpu in ("x64", "arm64"):
+            with self.subTest(cpu=cpu):
+                self._gn_host("linux", cpu)
+                result = self._run_gn("gen", f"out/broken-{cpu}")
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("typescript_vars.gni:23:3: Replacing nonempty list", result.stdout)
 
     def test_version_profiles_never_replace154_or_infer155_from_files(self):
         old = generators.generator_profile(generators.PINS)

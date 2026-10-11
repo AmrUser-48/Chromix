@@ -133,7 +133,7 @@ SOURCE155_REPAIRS = {
     ),
     "scripts/build/typescript/typescript_vars.gni": (
         "aa17ae85e0be06e7c593f1e8ff947b0795565b311b8938753366836085f88572",
-        "f4f451e28e6ee82ba690438fd270f3c66d130443d4f61195fa36116479baaeea",
+        "36650c33dd69e4cab6d51fa25b77170fe9a34a0fa2874afdc5a2b80044354a73",
         (
             b'  tsc_binary = "/usr/bin/tsc"',
             b'# Standard TypeScript library definitions',
@@ -141,10 +141,14 @@ SOURCE155_REPAIRS = {
         ),
         (
             b'  tsc_binary = devtools_location_prepend + "node_modules/typescript/lib/tsc.js"',
-            b'tsc_command = [ rebase_path(tsc_binary, root_build_dir) ]\n'
             b'if (host_os == "linux") {\n'
             b'  tsc_node = "//third_party/node/linux/node-linux-${host_cpu}/bin/node"\n'
-            b'  tsc_command = [ rebase_path(tsc_node, root_build_dir) ] + tsc_command\n'
+            b'  tsc_command = [\n'
+            b'    rebase_path(tsc_node, root_build_dir),\n'
+            b'    rebase_path(tsc_binary, root_build_dir),\n'
+            b'  ]\n'
+            b'} else {\n'
+            b'  tsc_command = [ rebase_path(tsc_binary, root_build_dir) ]\n'
             b'}\n'
             b'\n'
             b'# Standard TypeScript library definitions',
