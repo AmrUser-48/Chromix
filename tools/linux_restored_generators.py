@@ -114,6 +114,18 @@ BINARY155_HASHES = {
     "x64": "e1698a3d5c6c0798fee4fd3b5cc816651f460c63d390a7a26ea4beb0b1884100",
 }
 SOURCE155_REPAIRS = {
+    "front_end/ui/legacy/ARIAUtils.ts": (
+        "b8bdfdb829af51ba09253de4cea27880a9481871b82ca5d673a7bdad96cacd4d",
+        "29e9150b81c4c88e60bd29441182e2d1acc5ddbc349bcbb4dfe0527b7bc484ad",
+        b"getOrCreateAnnouncerElement(container: HTMLElement = document.body,",
+        b"getOrCreateAnnouncerElement(container: HTMLElement|undefined = document.body,",
+    ),
+    "front_end/ui/legacy/Widget.ts": (
+        "3d9bda48ca918b992bfe56d15f3c12847c5de64d1564291e1c680d08a24fd648",
+        "c2d260f5a0b5518824c41bed8e3f34e878985559a15380098570c7183821b78f",
+        b"readonly widgetParams?: Partial<WidgetT>)",
+        b"readonly widgetParams?: Partial<WidgetT>|undefined)",
+    ),
     "scripts/build/esbuild.js": (
         "7441e250f11d08744475e1a816d77c69aa265a9581380a475ff8313c80d63947",
         "05f0876b590b92caf11117f3321fd3af842f8516c125bf5341c08c323ec3eb69",

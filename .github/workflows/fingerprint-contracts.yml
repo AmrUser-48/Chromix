@@ -140,6 +140,7 @@ jobs:
         run: >-
           python -X utf8 -m pytest -q
           tools/tests/test_linux155_generators.py tools/tests/test_install_linux155_generators.py
+          tools/tests/test_linux155_declarations.py
           --junitxml=contracts-linux155-generators.xml
       - name: Node SDK regression
         if: ${{ !cancelled() }}

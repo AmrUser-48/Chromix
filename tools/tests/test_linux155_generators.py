@@ -163,6 +163,10 @@ SCRIPTS = json.loads(zlib.decompress(base64.b85decode(
 GN_FIXTURE_BYTES = gzip.decompress(
     (Path(__file__).parent / "fixtures/devtools155_gn.json.gz").read_bytes())
 GN_SOURCES = json.loads(GN_FIXTURE_BYTES)["sources"]
+DECLARATIONS_FIXTURE_BYTES = gzip.decompress(
+    (Path(__file__).parent / "fixtures/devtools155_declarations.json.gz").read_bytes())
+DECLARATIONS = json.loads(DECLARATIONS_FIXTURE_BYTES)
+SCRIPTS.update(DECLARATIONS["sources"])
 SCRIPTS["scripts/build/typescript/ts_type_check.gni"] = GN_SOURCES[
     "scripts/build/typescript/ts_type_check.gni"]
 API = "//" + generators.DEVTOOLS + "/front_end/core/platform/api"
@@ -186,7 +190,7 @@ class Linux155GeneratorsTest(unittest.TestCase):
 
     def test_real_reconstructed_bytes_and_every_repaired_hash(self):
         identities, changes = generators.source_plan(self.src, pins=generators.PINS155)
-        self.assertEqual(len(changes), 5)
+        self.assertEqual(len(changes), 7)
         for name, before, after, metadata in changes:
             self.assertEqual(hashlib.sha256(before).hexdigest(), identities[name]["original_sha256"])
             self.assertEqual(hashlib.sha256(after).hexdigest(), identities[name]["repaired_sha256"])
@@ -558,13 +562,13 @@ fs.writeFileSync('node-launch.json', JSON.stringify({
             state = generators.prepare_esbuild(self.src, host_arch="x64", repair=True,
                                                pins=generators.PINS155)
             self.assertFalse(state["repair_needed"])
-            self.assertEqual(writer.call_count, 5)
+            self.assertEqual(writer.call_count, 7)
             self.assertEqual(run.call_count, 2)
             for call in (*module_check.call_args_list, *binary_check.call_args_list):
                 self.assertEqual(call.kwargs["pins"], generators.PINS155)
             generators.prepare_esbuild(self.src, host_arch="x64", repair=True,
                                        pins=generators.PINS155)
-            self.assertEqual(writer.call_count, 5)
+            self.assertEqual(writer.call_count, 7)
 
     def test_unknown_archive_and_host_reject_before_install(self):
         archive = self.src / "unknown.tgz"

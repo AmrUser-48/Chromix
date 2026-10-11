@@ -170,7 +170,7 @@ def GetNodePath():
             result = self.inspect(repair=True)
         self.assertEqual(run.call_count, 3)
         self.assertFalse(result["repair_needed"])
-        self.assertEqual(len(result["esbuild"]["sources"]), 5)
+        self.assertEqual(len(result["esbuild"]["sources"]), 7)
         self.assertEqual(result["sha256"], generators.TYPESCRIPT155_REPAIRED["x64"])
 
     def test_prepare_finish_uses155_profile_for_both_hosts_and_all_probes(self):
@@ -184,7 +184,7 @@ def GetNodePath():
                 result = self.inspect(host, repair=True)
             self.assertFalse(result["repair_needed"])
             self.assertEqual(result["esbuild"]["binary"]["host_arch"], host)
-            self.assertEqual(len(result["esbuild"]["sources"]), 5)
+            self.assertEqual(len(result["esbuild"]["sources"]), 7)
             self.assertEqual([call.kwargs["pins"] for call in esbuild.call_args_list], [generators.PINS155] * 2)
             self.assertTrue(esbuild.call_args_list[1].kwargs["repair"])
             self.assertEqual(run.call_count, 3)
