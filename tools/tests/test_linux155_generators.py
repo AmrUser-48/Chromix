@@ -1,11 +1,13 @@
 """Independent reconstructed155 script bytes and version-isolated generator checks."""
 import base64
 import hashlib
+import gzip
 import json
 import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -157,6 +159,15 @@ SCRIPTS = json.loads(zlib.decompress(base64.b85decode(
 )))
 
 
+# Complete donor GN inventory, independent of SOURCE155_REPAIRS.
+GN_FIXTURE_BYTES = gzip.decompress(
+    (Path(__file__).parent / "fixtures/devtools155_gn.json.gz").read_bytes())
+GN_SOURCES = json.loads(GN_FIXTURE_BYTES)["sources"]
+SCRIPTS["scripts/build/typescript/ts_type_check.gni"] = GN_SOURCES[
+    "scripts/build/typescript/ts_type_check.gni"]
+API = "//" + generators.DEVTOOLS + "/front_end/core/platform/api"
+
+
 class Linux155GeneratorsTest(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
@@ -175,7 +186,7 @@ class Linux155GeneratorsTest(unittest.TestCase):
 
     def test_real_reconstructed_bytes_and_every_repaired_hash(self):
         identities, changes = generators.source_plan(self.src, pins=generators.PINS155)
-        self.assertEqual(len(changes), 4)
+        self.assertEqual(len(changes), 5)
         for name, before, after, metadata in changes:
             self.assertEqual(hashlib.sha256(before).hexdigest(), identities[name]["original_sha256"])
             self.assertEqual(hashlib.sha256(after).hexdigest(), identities[name]["repaired_sha256"])
@@ -196,6 +207,38 @@ class Linux155GeneratorsTest(unittest.TestCase):
         self.assertNotIn(b'/usr/bin/tsc', variables)
         self.assertNotIn("scripts/build/typescript/ts_library.py", generators.SOURCE155_REPAIRS)
         self.assertIn("scripts/build/typescript/ts_library.py", generators.SOURCE_REPAIRS)
+
+    def test_complete_donor_gn_inventory_and_typecheck_repair(self):
+        self.assertEqual(hashlib.sha256(GN_FIXTURE_BYTES).hexdigest(),
+                         "205bf6d99e486c02f98e34d96b57d93cb6dd3416b2b9dad2ecb33e02a2c71375")
+        gn_files = {name: text for name, text in GN_SOURCES.items()
+                    if name.endswith((".gn", ".gni"))}
+        self.assertEqual(len(gn_files), 386)
+        consumers = {name: text.count("rebase_path(tsc_binary, root_build_dir)")
+                     for name, text in gn_files.items() if "rebase_path(tsc_binary" in text}
+        self.assertEqual(consumers, {
+            "scripts/build/typescript/typescript.gni": 3,
+            "scripts/build/typescript/ts_type_check.gni": 1,
+        })
+        self.assertEqual({name for name, text in gn_files.items() if "tsc_binary" in text},
+                         set(consumers) | {"scripts/build/typescript/typescript_vars.gni"})
+        for name in gn_files.keys() & SCRIPTS.keys():
+            self.assertEqual(gn_files[name], SCRIPTS[name], name)
+        name = "scripts/build/typescript/ts_type_check.gni"
+        raw = GN_SOURCES[name].encode()
+        expected = raw.replace(b'      rebase_path(tsc_binary, root_build_dir),',
+                               b'    ] + tsc_command + [')
+        self.assertEqual(hashlib.sha256(raw).hexdigest(),
+                         "bd87baff09d8e2e504fd93f8db58081491bf2c3d3eb5de3a1250ad5b7268a5fb")
+        self.assertEqual(hashlib.sha256(expected).hexdigest(),
+                         "cfcb7d21806175c969cee489315145c96829e25e79ff9e14bdc2e7f13aa8d208")
+        _, changes = generators.source_plan(self.src, pins=generators.PINS155)
+        repaired = {path.removeprefix(generators.DEVTOOLS + "/"): after
+                    for path, _, after, _ in changes}
+        self.assertEqual(repaired[name], expected)
+        for consumer, count in consumers.items():
+            self.assertEqual(repaired[consumer].count(b"] + tsc_command + ["), count)
+            self.assertNotIn(b"rebase_path(tsc_binary", repaired[consumer])
 
     def test_vars_repaired_bytes_are_independently_derived(self):
         name = "scripts/build/typescript/typescript_vars.gni"
@@ -233,21 +276,25 @@ if (host_os == "linux") {
         if not binary:
             self.skipTest("real GN required: set GN to a GN executable or put gn on PATH")
         self.gn = str(Path(binary).resolve())
+        for name, text in GN_SOURCES.items():
+            path = self.src / generators.DEVTOOLS / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text)
         _, changes = generators.source_plan(self.src, pins=generators.PINS155)
         for name, _, after, _ in changes:
             (self.src / name).write_bytes(after)
         stubs = {
-            ".gn": 'buildconfig = "//BUILDCONFIG.gn"\n',
+            ".gn": ('buildconfig = "//BUILDCONFIG.gn"\n'
+                    f'script_executable = "{Path(sys.executable).as_posix()}"\n'),
             "build/toolchain/rbe.gni": 'declare_args() { use_remoteexec = false }\n',
             generators.DEVTOOLS + "/scripts/build/ninja/vars.gni": (
                 f'devtools_location = "{generators.DEVTOOLS}"\n'
                 'devtools_location_prepend = "//$devtools_location/"\n'
                 'build_with_chromium = false\n'
                 'devtools_bundle = false\n'),
-            generators.DEVTOOLS + "/scripts/build/typescript/ts_type_check.gni": "",
             "toolchain/BUILD.gn": '''toolchain("test") {
   tool("stamp") {
-    command = "unused-stamp {{output}}"
+    command = "/usr/bin/touch {{output}}"
   }
   tool("copy") {
     command = "unused-copy {{source}} {{output}}"
@@ -271,7 +318,7 @@ ts_library("check") {{
   no_js_emit = true
 }}
 group("default") {{
-  deps = [ ":emit", ":check" ]
+  deps = [ ":emit", ":check", "{API}:api" ]
 }}
 ''',
         }
@@ -327,8 +374,11 @@ group("default") {{
                     targets = json.loads(description.stdout)
                     actions = {label: target for label, target in targets.items()
                                if target["type"] == "action"}
-                    self.assertEqual(set(actions), {"//:emit-dts", "//:emit_checked",
-                                                    "//:check-dts", "//:check_checked"})
+                    self.assertEqual(set(actions), {
+                        "//:emit-dts", "//:emit_checked", "//:check-dts", "//:check_checked",
+                        API + ":api-dts", API + ":api_checked", API + ":api_node_typecheck",
+                        API + ":bundle-dts", API + ":bundle_checked",
+                    })
                     for label, action in actions.items():
                         with self.subTest(action=label):
                             response = action["response_file_contents"]
@@ -339,6 +389,94 @@ group("default") {{
                             self.assertNotIn("/usr/bin/tsc", response)
                             if host_os != "linux":
                                 self.assertFalse(any("/node-linux-" in path for path in action["inputs"]))
+
+    def test_real_ninja_api_node_typecheck_launch_and_failure(self):
+        node = os.environ.get("CHROMIX_TEST_NODE")
+        ninja = os.environ.get("NINJA") or shutil.which("ninja")
+        if not node or not ninja:
+            self.skipTest("set CHROMIX_TEST_NODE and NINJA for real JS launch coverage")
+        node = Path(node).resolve()
+        ninja = str(Path(ninja).resolve())
+        self._gn_fixture()
+        template = self.src / generators.DEVTOOLS / "scripts/build/typescript/ts_type_check.gni"
+        repaired = template.read_bytes()
+        tsc = self.src / generators.DEVTOOLS / "node_modules/typescript/lib/tsc.js"
+        tsc.parent.mkdir(parents=True, exist_ok=True)
+        # Native Node runs a launch probe, not a substituted TypeScript compiler.
+        probe = '''const fs = require('node:fs');
+const assert = require('node:assert/strict');
+assert.equal(process.argv[2], '-p');
+assert.equal(process.argv.length, 4);
+const config = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
+assert.equal(config.compilerOptions.noEmit, true);
+assert(config.compilerOptions.types.includes('node'));
+assert(config.compilerOptions.types.includes('undici-types'));
+fs.writeFileSync('node-launch.json', JSON.stringify({
+  executable: process.execPath, script: process.argv[1], args: process.argv.slice(2)
+}));
+'''
+        tsc.write_text(probe)
+        tsc.chmod(0o644)
+        for cpu in ("x64", "arm64"):
+            with self.subTest(cpu=cpu):
+                self._gn_host("linux", cpu)
+                local_node = self.src / f"third_party/node/linux/node-linux-{cpu}/bin/node"
+                local_node.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(node, local_node)
+                output = f"out/ninja-{cpu}"
+                result = self._run_gn("gen", output)
+                self.assertEqual(result.returncode, 0, result.stdout)
+                description = self._run_gn("desc", output, API + ":api_node_typecheck", "--format=json")
+                self.assertEqual(description.returncode, 0, description.stdout)
+                action = json.loads(description.stdout)[API + ":api_node_typecheck"]
+                response = action["response_file_contents"]
+                start = response.index("--") + 1
+                self.assertEqual(response[start:start + 2], [
+                    "../../" + local_node.relative_to(self.src).as_posix(),
+                    "../../" + tsc.relative_to(self.src).as_posix(),
+                ])
+                self.assertIn("//" + local_node.relative_to(self.src).as_posix(), action["inputs"])
+                for name in action["inputs"]:
+                    path = self.src / name.removeprefix("//")
+                    if not path.exists():
+                        path.parent.mkdir(parents=True, exist_ok=True)
+                        path.write_text("")
+                stamp = self.src / action["outputs"][0].removeprefix("//")
+                target = stamp.relative_to(self.src / output).as_posix()
+                def build():
+                    return subprocess.run([ninja, "-C", output, "-v", target], cwd=self.src,
+                                          env=dict(os.environ, PATH=""), text=True,
+                                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                          timeout=30, check=False)
+
+                result = build()
+                self.assertEqual(result.returncode, 0, result.stdout)
+                self.assertTrue(stamp.exists())
+                proof = json.loads((self.src / output / "node-launch.json").read_text())
+                self.assertEqual(Path(proof["executable"]), local_node)
+                self.assertEqual(Path(proof["script"]), tsc)
+                self.assertFalse(os.access(tsc, os.X_OK))
+                stamp.unlink()
+                tsc.write_text(probe + "process.exit(23);\n")
+                result = build()
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertFalse(stamp.exists())
+                tsc.write_text(probe)
+
+                # The same non-executable JS fails with the unmodified donor template.
+                template.write_text(GN_SOURCES["scripts/build/typescript/ts_type_check.gni"])
+                result = self._run_gn("gen", output)
+                self.assertEqual(result.returncode, 0, result.stdout)
+                result = build()
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIn("PermissionError: [Errno 13]", result.stdout)
+                self.assertFalse(stamp.exists())
+                template.write_bytes(repaired)
+                result = self._run_gn("gen", output)
+                self.assertEqual(result.returncode, 0, result.stdout)
+                result = build()
+                self.assertEqual(result.returncode, 0, result.stdout)
+                self.assertTrue(stamp.exists())
 
     def test_real_gn_reproduces_nonempty_list_regression(self):
         self._gn_fixture()
@@ -420,13 +558,13 @@ group("default") {{
             state = generators.prepare_esbuild(self.src, host_arch="x64", repair=True,
                                                pins=generators.PINS155)
             self.assertFalse(state["repair_needed"])
-            self.assertEqual(writer.call_count, 4)
+            self.assertEqual(writer.call_count, 5)
             self.assertEqual(run.call_count, 2)
             for call in (*module_check.call_args_list, *binary_check.call_args_list):
                 self.assertEqual(call.kwargs["pins"], generators.PINS155)
             generators.prepare_esbuild(self.src, host_arch="x64", repair=True,
                                        pins=generators.PINS155)
-            self.assertEqual(writer.call_count, 4)
+            self.assertEqual(writer.call_count, 5)
 
     def test_unknown_archive_and_host_reject_before_install(self):
         archive = self.src / "unknown.tgz"

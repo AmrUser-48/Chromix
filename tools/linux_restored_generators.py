@@ -158,6 +158,12 @@ SOURCE155_REPAIRS = {
             b'}',
         ),
     ),
+    "scripts/build/typescript/ts_type_check.gni": (
+        "bd87baff09d8e2e504fd93f8db58081491bf2c3d3eb5de3a1250ad5b7268a5fb",
+        "cfcb7d21806175c969cee489315145c96829e25e79ff9e14bdc2e7f13aa8d208",
+        b'      rebase_path(tsc_binary, root_build_dir),',
+        b'    ] + tsc_command + [',
+    ),
     "scripts/build/typescript/typescript.gni": (
         "b9b10d5452d78217851fd404dd48775e38a7a0479f7b937cc626a5de347bcf3f",
         "aa51f9621055f57f3bc98bfd8268ce98061280088f3c31b2231bbce94c2f081c",
