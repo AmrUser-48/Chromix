@@ -326,7 +326,7 @@ def test_current_base_has_224_patches_and_no_midl_overlap():
         _, entries = verify.arp.transform_patch((ROOT / name).read_bytes(), set(), [])
         assert verify.MIDL_SOURCE not in {entry[0] for entry in entries}
     assert verify.VERSION == "153.0.8010.47"
-    assert verify.load_pins(ROOT, "windows")["ChromiumVersion"] == "154.0.8037.97"
+    assert verify.load_pins(ROOT, "windows")["ChromiumVersion"] == "155.0.8059.39"
 
 
 @pytest.mark.parametrize("mutation", ["shallow", "target-sha", "missing-run", "wrong-job", "grandchild", "same-sha"])

@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Provision pinned Linux154 esbuild without executing archive code or npm scripts."""
+"""Provision pinned Linux esbuild without executing archive code or npm scripts."""
 from __future__ import annotations
 
 import argparse
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import stat
 import sys
@@ -79,10 +80,16 @@ def fetch_archive(url: str, digest: str) -> bytes:
     return bytes(data)
 
 
-def ensure_archive(downloads: Path, key: str, *, download: bool) -> Path:
-    url, digest = generators.ARCHIVES[key]
+def ensure_archive(downloads: Path, key: str, *, download: bool,
+                   pins: tuple = generators.PINS) -> Path:
+    profile = generators.generator_profile(pins)
+    if key not in ("module", "x64", "arm64"):
+        raise ValueError("unsupported Linux esbuild archive")
+    url, digest = profile["archives"][key]
+    if not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+        raise ValueError("missing or invalid esbuild archive SHA256")
     package = "esbuild" if key == "module" else f"@esbuild/linux-{key}"
-    filename = f"{package.rsplit('/', 1)[-1]}-0.25.1.tgz"
+    filename = f"{package.rsplit('/', 1)[-1]}-{profile['version']}.tgz"
     if url != f"https://registry.npmjs.org/{package}/-/{filename}":
         raise ValueError("untrusted esbuild archive endpoint")
     downloads = restore.local_path(downloads)
@@ -93,7 +100,7 @@ def ensure_archive(downloads: Path, key: str, *, download: bool) -> Path:
         raise ValueError("missing exact esbuild archive; populate offline cache or use --download in GitHub Actions")
     data = fetch_archive(url, digest)
     restore.local_path(downloads).mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix=".linux154-download-", dir=downloads) as temporary:
+    with tempfile.TemporaryDirectory(prefix=".linux-generator-download-", dir=downloads) as temporary:
         staged = Path(temporary) / filename
         staged.write_bytes(data)
         restore.local_path(downloads)
@@ -112,8 +119,7 @@ def install(workdir: Path, arch: str, downloads: Path, *, repo: Path = prepare.R
     receipt_bytes = receipt_marker.read_bytes()
     pins = prepare.load_pins(repo, "linux")
     identity = tuple(pins[key] for key in ("ChromiumVersion", "UngoogledCommit", "UngoogledLinuxCommit"))
-    if identity != generators.PINS:
-        raise ValueError("esbuild installer requires the exact Linux154 pins")
+    generators.generator_profile(identity)
     platform, host = prepare.host_identity()
     if platform != "linux" or (host, arch) not in (("x64", "x64"), ("arm64", "arm64"), ("x64", "arm64")):
         raise ValueError("unsupported Linux native host/target")
@@ -121,13 +127,14 @@ def install(workdir: Path, arch: str, downloads: Path, *, repo: Path = prepare.R
     state = prepare.prepare_linux_typescript(src, host_arch=host, repo=repo)["esbuild"]
     if not state["install_needed"]:
         return {"status": "already_installed", "source_identity": receipt["identity"], "esbuild": state}
-    archives = {key: ensure_archive(downloads, key, download=download) for key in ("module", host)}
+    archives = {key: ensure_archive(downloads, key, download=download, pins=identity)
+                for key in ("module", host)}
     if (receipt_marker.read_bytes() != receipt_bytes
             or restore.verify_restored(workdir, "linux", arch, repo=repo) != receipt):
         raise ValueError("restored source receipt changed during esbuild provisioning")
     prepare.prepare_linux_typescript(src, host_arch=host, repo=repo)
     result = generators.install_esbuild(src, host_arch=host, module_archive=archives["module"],
-                                        native_archive=archives[host])
+                                        native_archive=archives[host], pins=identity)
     return {"status": "installed", "source_identity": receipt["identity"], "esbuild": result}
 
 

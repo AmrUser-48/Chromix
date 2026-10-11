@@ -97,6 +97,12 @@ class Linux154RestoreLinksTest(unittest.TestCase):
         self.record_link()
         identity, pin, manifest = restore.identities(fixture.repo, "linux", "x64")
         identity.update(self.identity)
+        pin = dict(pin, chromium_version=self.identity["chromium_version"],
+                   ungoogled_commit=self.identity["ungoogled_commit"])
+        manifest = dict(manifest, **{key: identity[key] for key in (
+            "chromium_version", "repository", "head_sha", "run_id", "artifact_id", "artifact_digest")})
+        fixture.result["manifest"] = manifest
+        fixture.write(fixture.cache / "result.json", json.dumps(fixture.result))
         version = "\n".join(f"{key}={value}" for key, value in zip(
             ("MAJOR", "MINOR", "BUILD", "PATCH"), self.identity["chromium_version"].split("."))) + "\n"
         fixture.write(fixture.donor / "chrome/VERSION", version)

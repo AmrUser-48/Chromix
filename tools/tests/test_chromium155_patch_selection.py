@@ -1,0 +1,266 @@
+"""Chromium 155 authentication and optional independent upstream subset replay."""
+from __future__ import annotations
+
+from collections import Counter
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import sys
+import tarfile
+
+import pytest
+
+from tools import apply_restored_patches as arp
+from tools import patch_selection as selection
+from tools.tests.test_macos152_patch_selection import run_patch
+from tools.tests.test_macos154_patch_selection import predecessor_sections
+from tools.tests.test_patch_selection import clone_repo, set_platform_pins
+
+ROOT = Path(__file__).resolve().parents[2]
+VERSION = "155.0.8059.39"
+CORE = "ffeb45a2bb88bc56a1dfed31410aeb10e9efcd5a"
+COMMITS = {
+    "linux": "025d99db1673a21992534551598b73ca79360762",
+    "windows": "989b4382364baaddb8b3180e1eb1030ca96a7273",
+}
+ARCHIVES = {
+    "core": "83fe5a77fda1e9f558169e2020efd2c5d9fa946e398de28ecfdfa95ecbf6e55d",
+    "linux": "ddab5b6d57ba2843655db701e2c22f8316d1069ddc148bea60bd8331d0651d18",
+    "windows": "c21fd85df3096e0ce648bdcb769cc47e90f3d29085ed38e69d750824b5572474",
+}
+MANIFEST = "1e4876729baa2abddd7a219d7c01676454e2daa193a5875b34dadae24f50621f"
+NEW_OVERRIDES = {
+    "0031-third_party-blink-renderer-platform-graphics-image_data_buffer-cc.patch",
+    "0077-third_party-blink-renderer-modules-canvas-canvas2d-base_rendering_context_2d-h.patch",
+    "0082-third_party-blink-renderer-modules-webgl-webgl_rendering_context_base-cc.patch",
+}
+
+
+@pytest.fixture(params=("linux", "windows"))
+def repo155(tmp_path, request):
+    repo = clone_repo(tmp_path)
+    platform = request.param
+    set_platform_pins(repo, platform, VERSION, CORE, COMMITS[platform])
+    return repo, platform
+
+
+def test_exact_155_authenticates_ten_overrides_and_order(repo155):
+    repo, platform = repo155
+    identity, patches = selection.select(repo, platform)
+    assert len(patches) == 224
+    assert identity["selection"] == {
+        "schema_version": 1, "version": VERSION, "platform": platform,
+        "core_commit": CORE, "platform_commit": COMMITS[platform],
+        "base_series_sha256": selection.digest((repo / "patches/series").read_bytes()),
+    }
+    assert set(selection.OVERRIDES155) == set(selection.OVERRIDES) | NEW_OVERRIDES
+    series = (repo / "patches/series").read_bytes()
+    for name, (original, replacement) in selection.OVERRIDES155.items():
+        path = selection.OVERRIDE155_ROOT + "/" + name
+        assert selection.digest((repo / "patches" / name).read_bytes()) == original
+        assert selection.digest(dict(patches)[path]) == replacement
+        series = series.replace(("patches/" + name).encode(), path.encode())
+    assert identity["series_sha256"] == selection.digest(series)
+    assert identity["patches"] == [
+        {"path": name, "sha256": selection.digest(raw)} for name, raw in patches]
+    for name in selection.OVERRIDES:
+        assert (repo / selection.OVERRIDE155_ROOT / name).read_bytes() == (
+            repo / selection.OVERRIDE_ROOT / name).read_bytes()
+
+
+@pytest.mark.parametrize("mutation", ["missing", "changed", "extra", "predecessor",
+                                      "symlink", "directory-symlink", "series", "pins"])
+def test_155_inventory_fails_closed(repo155, mutation):
+    repo, platform = repo155
+    directory = repo / selection.OVERRIDE155_ROOT
+    name = sorted(NEW_OVERRIDES)[0]
+    patch = directory / name
+    if mutation == "missing":
+        patch.unlink()
+    elif mutation == "changed":
+        patch.write_bytes(patch.read_bytes() + b"\n")
+    elif mutation == "extra":
+        (directory / "unexpected.patch").write_bytes(b"unexpected")
+    elif mutation == "predecessor":
+        patch = repo / "patches" / name
+        patch.write_bytes(patch.read_bytes() + b"\n")
+    elif mutation == "symlink":
+        patch.unlink()
+        patch.symlink_to(ROOT / selection.OVERRIDE155_ROOT / name)
+    elif mutation == "directory-symlink":
+        shutil.rmtree(directory)
+        directory.symlink_to(ROOT / selection.OVERRIDE155_ROOT, target_is_directory=True)
+    elif mutation == "series":
+        patch = repo / "patches/series"
+        patch.write_text(patch.read_text().replace("patches/" + name + "\n", ""))
+    else:
+        (repo / "build/ungoogled-revisions.psd1").unlink()
+    with pytest.raises(selection.SelectionError):
+        selection.select(repo, platform)
+
+
+@pytest.mark.parametrize("field,value", [
+    ("core_commit", "0" * 40), ("core_commit", selection.CORE),
+    ("platform_commit", "0" * 40), ("core_version", VERSION + "-2"),
+    ("platform_version", VERSION + "-1.2"),
+])
+def test_155_rejects_wrong_donor_revision(repo155, field, value):
+    repo, platform = repo155
+    prefix = selection.PLATFORMS[platform]
+    key = {"core_commit": prefix + "UngoogledCommit",
+           "core_version": prefix + "UngoogledVersion",
+           "platform_commit": "Ungoogled" + prefix + "Commit",
+           "platform_version": "Ungoogled" + prefix + "Version"}[field]
+    path = repo / "build/ungoogled-revisions.psd1"
+    path.write_text(re.sub(rf'(?m)^(  {key} = )"[^"]+"',
+                           rf'\g<1>"{value}"', path.read_text()))
+    with pytest.raises(selection.SelectionError, match="pins|Ungoogled"):
+        selection.select(repo, platform)
+
+
+@pytest.mark.parametrize("which", ["src", "core"])
+@pytest.mark.parametrize("value", [None, selection.VERSION, VERSION])
+def test_155_requires_matching_source_and_core(tmp_path, repo155, which, value):
+    repo, platform = repo155
+    directory = tmp_path / which
+    path = directory / ("chrome/VERSION" if which == "src" else "chromium_version.txt")
+    path.parent.mkdir(parents=True)
+    if value:
+        text = ("".join(f"{key}={part}\n" for key, part in
+                        zip(("MAJOR", "MINOR", "BUILD", "PATCH"), value.split(".")))
+                if which == "src" else value + "\n")
+        path.write_text(text)
+    if value == VERSION:
+        assert selection.select(repo, platform, **{which: directory})[0]["selection"]
+    else:
+        with pytest.raises(selection.SelectionError, match="version|missing patch input"):
+            selection.select(repo, platform, **{which: directory})
+
+
+@pytest.mark.parametrize("style", ["posix", "windows"])
+def test_155_separates_keys_without_changing_154(repo155, style):
+    repo, platform = repo155
+    current = selection.preparation_key(repo, platform, style)
+    set_platform_pins(repo, platform, selection.VERSION, selection.CORE,
+                      selection.PLATFORM_COMMITS[platform])
+    historical = selection.preparation_key(repo, platform, style)
+    assert current != historical
+    before = selection.select(repo, platform)
+    shutil.rmtree(repo / selection.OVERRIDE155_ROOT)
+    assert selection.select(repo, platform) == before
+    assert selection.preparation_key(repo, platform, style) == historical
+
+
+def test_155_does_not_enable_macos(tmp_path):
+    repo = clone_repo(tmp_path)
+    set_platform_pins(repo, "macos", VERSION, CORE, COMMITS["linux"])
+    with pytest.raises(selection.SelectionError, match="require Windows or Linux"):
+        selection.select(repo, "macos")
+
+
+def test_155_rebase_retains_native_color_conversion_and_canvas_operations():
+    image = (ROOT / selection.OVERRIDE155_ROOT / sorted(NEW_OVERRIDES)[0]).read_text()
+    assert "GetColorInfoForEncoder(pixmap_.info().colorInfo()," in image
+    assert "+    return;\n" in image
+    assert "paint_image_info.colorType(), alpha_type" not in image
+    for name in sorted(NEW_OVERRIDES)[1:]:
+        base = (ROOT / "patches" / name).read_text()
+        override = (ROOT / selection.OVERRIDE155_ROOT / name).read_text()
+        def additions(text):
+            return Counter(line for line in text.splitlines()
+                           if line.startswith("+") and line != "+"
+                           and not line.startswith("+++"))
+        assert additions(base) == additions(override)
+
+
+def authenticate_donor(donor, name):
+    archive = donor / (name + ".tar.gz")
+    assert selection.digest(archive.read_bytes()) == ARCHIVES[name]
+    with tarfile.open(archive) as tar:
+        for member in tar.getmembers():
+            if member.isfile():
+                relative = Path(*Path(member.name).parts[1:])
+                assert (donor / name / relative).read_bytes() == tar.extractfile(member).read()
+
+
+@pytest.mark.parametrize("substituted", [False, True])
+def test_optional_independent_155_full_stack(tmp_path, repo155, substituted):
+    root = os.environ.get("CHROMIX_155_SOURCES")
+    if not root:
+        pytest.skip("set CHROMIX_155_SOURCES to independent pristine/core/linux/windows directories")
+    donor = Path(root)
+    repo, platform = repo155
+    pristine, core, tooling = donor / "pristine", donor / "core", donor / platform
+    assert selection.digest((donor / "source-manifest.json").read_bytes()) == MANIFEST
+    manifest = json.loads((donor / "source-manifest.json").read_text())
+    assert manifest["version"] == VERSION and not manifest["errors"]
+    assert manifest["revisions"] == {
+        "v8": "56832c166a78bd1eb61068ac69876d6880eaabdf",
+        "webrtc": "5bd86a2f17a35dfc986b87d058f511e45805bd1d",
+    }
+    assert len(manifest["files"]) == 150
+    for name, entry in manifest["files"].items():
+        assert selection.digest((pristine / name).read_bytes()) == entry["sha256"]
+    for name in ("core", platform):
+        authenticate_donor(donor, name)
+    assert (core / "revision.txt").read_text().strip() == "1"
+    if platform == "windows":
+        assert (tooling / "revision.txt").read_text().strip() == "1"
+    src = tmp_path / "src"
+    shutil.copytree(pristine, src)
+    _, patches = selection.select(repo, platform, src=src, core=core)
+    targets = {target for _, raw in patches
+               for target, _, _ in arp.transform_patch(raw, set(), [])[1]}
+    assert len(targets) == 167
+    core_sections = list(predecessor_sections(core, targets))
+    platform_sections = list(predecessor_sections(tooling, targets))
+    assert len(core_sections) == 21
+    overlay = ("portablelinux/revert-crubit-changes.patch" if platform == "linux"
+               else "windows/windows-fix-building-without-crubit.patch")
+    assert [(name, target) for name, target, _ in platform_sections] == [
+        ("ungoogled-chromium/" + overlay, "third_party/blink/renderer/platform/BUILD.gn")]
+    log = []
+    for name, target, section in [*core_sections, *platform_sections]:
+        patch = tmp_path / "predecessor.patch"
+        patch.write_text(section)
+        result = run_patch(src, patch)
+        log.append(name + ":" + target + "\n" + result.stdout + result.stderr)
+        assert result.returncode == 0, log[-1]
+        assert not re.search(r"fuzz|FAILED", log[-1], re.I)
+    if substituted:
+        rules = arp._rules((core / "domain_regex.list").read_bytes())
+        listed = set(((tooling if platform == "windows" else core) /
+                      "domain_substitution.list").read_text().splitlines())
+        for name in targets & listed:
+            path = src / name
+            if path.is_file():
+                text, encoding = arp._decode(path.read_bytes())
+                path.write_bytes(arp._substitute(text, rules).encode(encoding))
+        program = shutil.which("gpatch") or "patch"
+        report = arp.run_apply(src, repo, core, tooling, platform, program)
+        assert report["status"] == "applied" and report["patch_count"] == 224
+        (tmp_path / "applied.json").write_text(json.dumps(report, indent=2))
+        assert arp.run_apply(src, repo, core, tooling, platform, program, check=True)["status"] == "checked"
+        (src / ".chromix-domain-substituted").write_text(CORE)
+    else:
+        shutil.copytree(repo / arp.LITE, src, dirs_exist_ok=True)
+        for name, _ in patches:
+            result = run_patch(src, repo / name)
+            log.append(name + "\n" + result.stdout + result.stderr)
+            assert result.returncode == 0, log[-1]
+            assert not re.search(r"fuzz|FAILED", log[-1], re.I)
+    (tmp_path / "apply.log").write_text("\n".join(log))
+    output = tmp_path / "verified.json"
+    result = subprocess.run([
+        sys.executable, str(ROOT / "tools/verify_patch_stack.py"),
+        "--src", str(src), "--repo", str(repo), "--core", str(core),
+        "--platform-tooling", str(tooling), "--platform", platform, "--output", str(output)],
+        capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stdout + result.stderr
+    report = json.loads(output.read_text())
+    assert report["status"] == "verified" and report["patch_count"] == 224
+    assert report["domain_substituted"] == substituted
+    assert report["identity"]["selection"]["core_commit"] == CORE

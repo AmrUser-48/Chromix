@@ -362,7 +362,32 @@ class Arm64UpstreamCacheTest(unittest.TestCase):
 
 class FinalArm64UpstreamCacheTest(unittest.TestCase):
     def setUp(self):
-        self.pin, self.identity = cache.load_manifest("windows", "arm64", 37100793757)
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        (self.root / "build").mkdir()
+        for name in ("CHROMIUM_VERSION", "CHROMIUM_LINUX_VERSION", "CHROMIUM_MACOS_VERSION",
+                     "CHROMIUM_WINDOWS_VERSION", "build/ungoogled-revisions.psd1", "build/upstream-cache.json"):
+            shutil.copyfile(cache.ROOT / name, self.root / name)
+        pins = cache.load_shared_pins(self.root)
+        pins.update(WindowsChromiumVersion="154.0.8037.97", WindowsUngoogledVersion="154.0.8037.97-1",
+                    WindowsUngoogledCommit="37085e47cf580c815a30402917d350ce97399ded",
+                    UngoogledWindowsVersion="154.0.8037.97-1.1",
+                    UngoogledWindowsCommit="f03c33d7974af5b40f25b01984ded8418d60fbe4")
+        (self.root / "build/ungoogled-revisions.psd1").write_text(
+            "@{\n" + "".join(f'  {key} = "{value}"\n' for key, value in pins.items()) + "}\n")
+        (self.root / "CHROMIUM_WINDOWS_VERSION").write_text("154.0.8037.97\n")
+        manifest = json.loads((self.root / "build/upstream-cache.json").read_text())
+        source = fixtures.synthetic_windows_source(self.root)
+        source["artifacts"]["arm64"] = {
+            "id": 11400140219, "name": "build-artifact-arm", "size_in_bytes": 16217698638,
+            "digest": "sha256:51e706c5f85603616ea808eb0a8b8baa9114635bdfd90bcc4135aa591b8d3132",
+            "expires_at": "2026-10-10T08:37:38Z", "inner_archive": "artifacts.zip",
+            "run_id": 37100793757, "workflow_path": ".github/workflows/build-arm.yml",
+        }
+        manifest["sources"]["windows"] = source
+        (self.root / "build/upstream-cache.json").write_text(json.dumps(manifest))
+        self.pin, self.identity = cache.load_manifest("windows", "arm64", 37100793757, root=self.root)
         self.now = datetime(2026, 10, 6, 11, tzinfo=timezone.utc)
         self.run, self.artifact = fixtures.metadata(self.pin)
         self.run.update(run_attempt=2)
@@ -407,7 +432,7 @@ class FinalArm64UpstreamCacheTest(unittest.TestCase):
                 mock.patch.object(cache.shutil, "disk_usage", return_value=mock.Mock(free=1024**4)), \
                 mock.patch("sys.stderr", new=io.StringIO()):
             clock.now.return_value = self.now
-            result = cache.fetch("windows", "arm64", Path(temporary), 37100793757, client=client)
+            result = cache.fetch("windows", "arm64", Path(temporary), 37100793757, root=self.root, client=client)
         self.assertEqual(result["reason"], "metadata_verified")
         base = "/repos/ungoogled-software/ungoogled-chromium-windows/actions"
         self.assertEqual(client.json.call_args_list, [

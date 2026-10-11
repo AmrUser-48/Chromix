@@ -4,33 +4,33 @@
   "ungoogled_commit": "dd8fb9b5c837982faf41ba58cd30a5664e77c329",
   "sources": {
     "linux": {
-      "chromium_version": "154.0.8037.97",
-      "ungoogled_commit": "37085e47cf580c815a30402917d350ce97399ded",
+      "chromium_version": "155.0.8059.39",
+      "ungoogled_commit": "ffeb45a2bb88bc56a1dfed31410aeb10e9efcd5a",
       "repository": "ungoogled-software/ungoogled-chromium-portablelinux",
       "repository_id": 177191557,
-      "head_sha": "f1441a6efb4d79427d1a3180b1877bbbdb1af7aa",
-      "head_branch": "154.0.8037.97-1",
+      "head_sha": "025d99db1673a21992534551598b73ca79360762",
+      "head_branch": "155.0.8059.39-1",
       "event": "push",
       "workflow_path": ".github/workflows/build.yml",
-      "run_id": 37075483703,
+      "run_id": 37906884923,
       "source_roots": [
         "build/src"
       ],
       "artifacts": {
         "x64": {
-          "id": 11271061055,
+          "id": 11652570743,
           "name": "build-cache-x86_64",
-          "size_in_bytes": 4737557847,
-          "digest": "sha256:ad79c83fe3fb790c452685d86f0e169e659e076caf4ab1592282993bf2155645",
-          "expires_at": "2026-12-31T23:00:54Z",
+          "size_in_bytes": 4733942111,
+          "digest": "sha256:34182b5fdbec949fbe29d320a7d7200eb9cd4b284c18b8daa0c516ab4816fa1a",
+          "expires_at": "2027-01-07T08:45:03Z",
           "inner_archive": "build-cache-x86_64.tar.zst"
         },
         "arm64": {
-          "id": 11283212930,
+          "id": 11656090008,
           "name": "build-cache-arm64",
-          "size_in_bytes": 5672718015,
-          "digest": "sha256:4e4cdf8e1a4f4baeb54a6d62906fb1f02da6fe0136f016868f823f7f28bda21c",
-          "expires_at": "2026-12-31T23:00:54Z",
+          "size_in_bytes": 5677163828,
+          "digest": "sha256:a4c0bfd8020cd34f27a652ae449f9e8547a468b8b813a11a64acf8a0891db447",
+          "expires_at": "2027-01-07T08:45:03Z",
           "inner_archive": "build-cache-arm64.tar.zst"
         }
       }
@@ -68,37 +68,27 @@
       }
     },
     "windows": {
-      "chromium_version": "154.0.8037.97",
-      "ungoogled_commit": "37085e47cf580c815a30402917d350ce97399ded",
+      "chromium_version": "155.0.8059.39",
+      "ungoogled_commit": "ffeb45a2bb88bc56a1dfed31410aeb10e9efcd5a",
       "repository": "ungoogled-software/ungoogled-chromium-windows",
       "repository_id": 177210827,
-      "head_sha": "f03c33d7974af5b40f25b01984ded8418d60fbe4",
-      "head_branch": "154.0.8037.97-1.1",
+      "head_sha": "989b4382364baaddb8b3180e1eb1030ca96a7273",
+      "head_branch": "155.0.8059.39-1.1",
       "event": "push",
       "workflow_path": ".github/workflows/build-x64.yml",
-      "run_id": 37100793859,
+      "run_id": 37831345909,
       "source_roots": [
         "src",
         "build/src"
       ],
       "artifacts": {
         "x64": {
-          "id": 11312218732,
+          "id": 11670281902,
           "name": "build-artifact",
-          "size_in_bytes": 15695236662,
-          "digest": "sha256:752273bc9cbf53820f82105f8a3668df43ac59455f1dd1062900c528e3b1370d",
-          "expires_at": "2026-10-08T19:06:26Z",
+          "size_in_bytes": 15705197543,
+          "digest": "sha256:4648e4426093106521986dc5a4dc66b47d861250710b3391f5ed7cf73d11db5c",
+          "expires_at": "2026-10-14T12:44:25Z",
           "inner_archive": "artifacts.zip"
-        },
-        "arm64": {
-          "id": 11400140219,
-          "name": "build-artifact-arm",
-          "size_in_bytes": 16217698638,
-          "digest": "sha256:51e706c5f85603616ea808eb0a8b8baa9114635bdfd90bcc4135aa591b8d3132",
-          "expires_at": "2026-10-10T08:37:38Z",
-          "inner_archive": "artifacts.zip",
-          "run_id": 37100793757,
-          "workflow_path": ".github/workflows/build-arm.yml"
         }
       }
     }

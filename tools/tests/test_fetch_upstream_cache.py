@@ -283,41 +283,115 @@ class FetchUpstreamCacheTest(unittest.TestCase):
                     with self.assertRaisesRegex(cache.CacheMiss, "pin_mismatch"):
                         cache.load_manifest(target, "x64", root=self.root)
 
+    def test_checked_in_linux_cache_matches_exact_two_arch_metadata(self):
+        manifest = json.loads(cache.MANIFEST.read_text())
+        source = manifest["sources"]["linux"]
+        self.assertEqual(source, {
+            "chromium_version": "155.0.8059.39",
+            "ungoogled_commit": "ffeb45a2bb88bc56a1dfed31410aeb10e9efcd5a",
+            "repository": "ungoogled-software/ungoogled-chromium-portablelinux",
+            "repository_id": 177191557,
+            "head_sha": "025d99db1673a21992534551598b73ca79360762",
+            "head_branch": "155.0.8059.39-1", "event": "push",
+            "workflow_path": ".github/workflows/build.yml",
+            "run_id": 37906884923, "source_roots": ["build/src"],
+            "artifacts": {
+                "x64": {
+                    "id": 11652570743, "name": "build-cache-x86_64", "size_in_bytes": 4733942111,
+                    "digest": "sha256:34182b5fdbec949fbe29d320a7d7200eb9cd4b284c18b8daa0c516ab4816fa1a",
+                    "expires_at": "2027-01-07T08:45:03Z", "inner_archive": "build-cache-x86_64.tar.zst",
+                },
+                "arm64": {
+                    "id": 11656090008, "name": "build-cache-arm64", "size_in_bytes": 5677163828,
+                    "digest": "sha256:a4c0bfd8020cd34f27a652ae449f9e8547a468b8b813a11a64acf8a0891db447",
+                    "expires_at": "2027-01-07T08:45:03Z", "inner_archive": "build-cache-arm64.tar.zst",
+                },
+            },
+        })
+        for arch in ("x64", "arm64"):
+            with self.subTest(arch=arch):
+                pin, identity = cache.load_manifest("linux", arch, 37906884923, root=cache.ROOT)
+                self.assertEqual(pin, {
+                    **{key: value for key, value in source.items() if key != "artifacts"},
+                    "artifact": source["artifacts"][arch],
+                })
+                self.assertEqual(identity["target"], "linux-" + arch)
+                self.assertEqual(identity["artifact_id"], source["artifacts"][arch]["id"])
+                self.assertEqual(identity["artifact_digest"], source["artifacts"][arch]["digest"])
+                self.assert_metadata_provenance(pin, datetime(2026, 10, 11, tzinfo=timezone.utc))
+                run, _ = metadata(pin)
+                other_pin, _ = cache.load_manifest(
+                    "linux", "arm64" if arch == "x64" else "x64", root=cache.ROOT)
+                _, other_artifact = metadata(other_pin)
+                with self.assertRaisesRegex(cache.CacheMiss, "artifact_mismatch"):
+                    cache.validate_metadata(pin, run, other_artifact, NOW)
+                client = mock.Mock()
+                result = cache.fetch("linux", arch, self.destination, 37075483703,
+                                     root=cache.ROOT, client=client)
+                self.assertEqual(result["reason"], "run_id_mismatch")
+                self.assertEqual(result["download_bytes"], 0)
+                self.assertEqual(client.mock_calls, [])
+
+    def test_checked_in_windows_arm64_is_unsupported_without_using_old_cache(self):
+        for run_id in (None, 37100793757, 37831345909):
+            with self.subTest(run_id=run_id):
+                with self.assertRaisesRegex(cache.CacheMiss, "^unsupported_target$"):
+                    cache.load_manifest("windows", "arm64", run_id, root=cache.ROOT)
+                source = self.destination / "tree/src"
+                source.mkdir(parents=True)
+                (source / "BUILD.gn").write_text("old 154 source")
+                cache.write_result(self.destination, {
+                    "owner": cache.OWNER, "destination": str(self.destination), "status": "hit",
+                    "source": str(source), "extraction_scope": cache.SOURCE_SCOPE,
+                    "manifest": {
+                        "target": "windows-arm64", "chromium_version": "154.0.8037.97",
+                        "run_id": 37100793757, "artifact_id": 11400140219,
+                    },
+                })
+                client = mock.Mock()
+                result = cache.fetch("windows", "arm64", self.destination, run_id, root=cache.ROOT, client=client)
+                self.assertEqual(result["reason"], "unsupported_target")
+                self.assertEqual(result["status"], "miss")
+                self.assertEqual(result["download_bytes"], 0)
+                self.assertIsNone(result["source"])
+                self.assertFalse((self.destination / "tree").exists())
+                self.assertEqual(client.mock_calls, [])
+
     def test_checked_in_windows_cache_matches_exact_production_metadata(self):
         manifest = json.loads(cache.MANIFEST.read_text())
         self.assertEqual(manifest["schema_version"], 1)
         self.assertEqual(manifest["chromium_version"], "153.0.8010.36")
         self.assertEqual(manifest["ungoogled_commit"], "dd8fb9b5c837982faf41ba58cd30a5664e77c329")
         source = manifest["sources"]["windows"]
-        x64_source = copy.deepcopy(source)
-        x64_source["artifacts"].pop("arm64", None)
-        self.assertEqual(x64_source, {
-            "chromium_version": "154.0.8037.97",
-            "ungoogled_commit": "37085e47cf580c815a30402917d350ce97399ded",
+        self.assertEqual(source, {
+            "chromium_version": "155.0.8059.39",
+            "ungoogled_commit": "ffeb45a2bb88bc56a1dfed31410aeb10e9efcd5a",
             "repository": "ungoogled-software/ungoogled-chromium-windows",
             "repository_id": 177210827,
-            "head_sha": "f03c33d7974af5b40f25b01984ded8418d60fbe4",
-            "head_branch": "154.0.8037.97-1.1",
+            "head_sha": "989b4382364baaddb8b3180e1eb1030ca96a7273",
+            "head_branch": "155.0.8059.39-1.1",
             "event": "push", "workflow_path": ".github/workflows/build-x64.yml",
-            "run_id": 37100793859, "source_roots": ["src", "build/src"],
+            "run_id": 37831345909, "source_roots": ["src", "build/src"],
             "artifacts": {"x64": {
-                "id": 11312218732, "name": "build-artifact", "size_in_bytes": 15695236662,
-                "digest": "sha256:752273bc9cbf53820f82105f8a3668df43ac59455f1dd1062900c528e3b1370d",
-                "expires_at": "2026-10-08T19:06:26Z", "inner_archive": "artifacts.zip",
+                "id": 11670281902, "name": "build-artifact", "size_in_bytes": 15705197543,
+                "digest": "sha256:4648e4426093106521986dc5a4dc66b47d861250710b3391f5ed7cf73d11db5c",
+                "expires_at": "2026-10-14T12:44:25Z", "inner_archive": "artifacts.zip",
             }},
         })
-        pin, identity = cache.load_manifest("windows", "x64", 37100793859, root=cache.ROOT)
+        pin, identity = cache.load_manifest("windows", "x64", 37831345909, root=cache.ROOT)
         self.assertEqual(pin, {**{key: value for key, value in source.items() if key != "artifacts"},
                                "artifact": source["artifacts"]["x64"]})
         self.assertEqual({key: identity[key] for key in (
             "chromium_version", "head_sha", "run_id", "artifact_id", "artifact_digest")}, {
-            "chromium_version": "154.0.8037.97", "head_sha": source["head_sha"],
-            "run_id": 37100793859, "artifact_id": 11312218732,
+            "chromium_version": "155.0.8059.39", "head_sha": source["head_sha"],
+            "run_id": 37831345909, "artifact_id": 11670281902,
             "artifact_digest": source["artifacts"]["x64"]["digest"],
         })
-        self.assert_metadata_provenance(pin, datetime(2026, 9, 27, tzinfo=timezone.utc))
-        for arch, run_id, reason in (("arm64", 36093095228,
-                                      "run_id_mismatch" if "arm64" in source["artifacts"] else "unsupported_target"),
+        self.assert_metadata_provenance(pin, datetime(2026, 10, 11, tzinfo=timezone.utc))
+        for arch, run_id, reason in (("arm64", None, "unsupported_target"),
+                                     ("arm64", 37100793757, "unsupported_target"),
+                                     ("arm64", 37831345909, "unsupported_target"),
+                                     ("x64", 37100793859, "run_id_mismatch"),
                                      ("x64", 37100793757, "run_id_mismatch"),
                                      ("x64", 34806882978, "run_id_mismatch"),
                                      ("x64", 33898278106, "run_id_mismatch")):

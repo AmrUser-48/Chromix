@@ -75,6 +75,30 @@ WINDOWS154_RECORDS = (
         "after_sha256": WINDOWS154_REPAIRED_SHA256,
     }),
 )
+# Chromium 155 raw midl.py, the Windows patch and forward domain substitution
+# independently reproduce these hashes; the 154 ARM64 record remains separate.
+WINDOWS155_ORIGINAL_SHA256 = "0c0062cc6b73e1d0874e2a3304498f48ad1cb552d11d49eea223319051dde831"
+WINDOWS155_REPAIRED_SHA256 = "466824620fd2348229c24d477d114e4c7acc0a5e75a8f1b162729809a0dfccde"
+WINDOWS155_RECORDS = (
+    MappingProxyType({
+        "identity": MappingProxyType({
+            "chromium_version": "155.0.8059.39",
+            "ungoogled_commit": "ffeb45a2bb88bc56a1dfed31410aeb10e9efcd5a",
+            "head_sha": "989b4382364baaddb8b3180e1eb1030ca96a7273",
+            "platform": "windows", "arch": "x64",
+            "repository": "ungoogled-software/ungoogled-chromium-windows",
+            "repository_id": 177210827,
+            "head_branch": "155.0.8059.39-1.1", "event": "push",
+            "workflow_path": ".github/workflows/build-x64.yml",
+            "run_id": 37831345909,
+            "artifact_id": 11670281902, "artifact_name": "build-artifact",
+            "artifact_digest": "sha256:4648e4426093106521986dc5a4dc66b47d861250710b3391f5ed7cf73d11db5c",
+            "artifact_size_in_bytes": 15705197543,
+        }),
+        "before_sha256": WINDOWS155_ORIGINAL_SHA256,
+        "after_sha256": WINDOWS155_REPAIRED_SHA256,
+    }),
+)
 BEFORE = b"""            open(file_path, 'wb').close()
         shutil.copy(file_path, outdir)
 """
@@ -118,15 +142,27 @@ def transform154(payload: bytes) -> bytes:
     return _transform(payload, WINDOWS154_ORIGINAL_SHA256, WINDOWS154_REPAIRED_SHA256)
 
 
+def transform155(payload: bytes) -> bytes:
+    """Accept only independently reconstructed Windows155 donor or repaired bytes."""
+    return _transform(payload, WINDOWS155_ORIGINAL_SHA256, WINDOWS155_REPAIRED_SHA256)
+
+
 def _exact_identity(identity: dict, expected) -> bool:
     return (isinstance(identity, dict) and identity == expected
             and all(type(identity[key]) is type(value) for key, value in expected.items()))
 
 
 def _windows154_record(identity: dict, arch: str, records: tuple):
+    return _versioned_record(identity, arch, records, "154.0.8037.97",
+                             WINDOWS154_ORIGINAL_SHA256, WINDOWS154_REPAIRED_SHA256)
+
+
+def _versioned_record(identity: dict, arch: str, records: tuple, version: str,
+                      before_sha256: str, after_sha256: str):
+    label = "Windows" + version.split(".")[0]
     # Records are reviewed code pins, never derived from the restore receipt.
     if type(records) is not tuple:
-        raise ValueError("Windows154 MIDL pins must be immutable explicit records")
+        raise ValueError(f"{label} MIDL pins must be immutable explicit records")
     matches = []
     for record in records:
         if (not isinstance(record, MappingProxyType)
@@ -135,16 +171,16 @@ def _windows154_record(identity: dict, arch: str, records: tuple):
                 or set(record["identity"]) != set(IDENTITIES["x64"])
                 or any(type(record["identity"][key]) is not type(value)
                        for key, value in IDENTITIES["x64"].items())
-                or record["identity"]["chromium_version"] != "154.0.8037.97"
-                or record["before_sha256"] != WINDOWS154_ORIGINAL_SHA256
-                or record["after_sha256"] != WINDOWS154_REPAIRED_SHA256):
-            raise ValueError("unknown Windows154 MIDL repair record")
+                or record["identity"]["chromium_version"] != version
+                or record["before_sha256"] != before_sha256
+                or record["after_sha256"] != after_sha256):
+            raise ValueError(f"unknown {label} MIDL repair record")
         if (record["identity"]["platform"] == "windows"
                 and record["identity"]["arch"] == arch
                 and _exact_identity(identity, record["identity"])):
             matches.append(record)
     if len(matches) != 1:
-        raise ValueError("unverified Windows154 MIDL upstream identity")
+        raise ValueError(f"unverified {label} MIDL upstream identity")
     return matches[0]
 
 
@@ -441,7 +477,7 @@ def _proof(src: Path, identity: dict, *, before_sha256=ORIGINAL_SHA256,
 
 
 def apply(src: Path, platform: str, arch: str, identity: dict, *,
-          records=WINDOWS154_RECORDS) -> dict:
+          records=WINDOWS154_RECORDS, records155=WINDOWS155_RECORDS) -> dict:
     """Match a strict-restore identity against independent, reviewed donor pins."""
     if platform != "windows":
         return {"status": "not_applicable"}
@@ -458,6 +494,11 @@ def apply(src: Path, platform: str, arch: str, identity: dict, *,
         record = _windows154_record(identity, arch, records)
         before_sha256, after_sha256 = record["before_sha256"], record["after_sha256"]
         repair = transform154
+    elif version.startswith("155."):
+        record = _versioned_record(identity, arch, records155, "155.0.8059.39",
+                                   WINDOWS155_ORIGINAL_SHA256, WINDOWS155_REPAIRED_SHA256)
+        before_sha256, after_sha256 = record["before_sha256"], record["after_sha256"]
+        repair = transform155
     else:
         return {"status": "not_applicable", "path": SCRIPT}
     original, info = _read(path)

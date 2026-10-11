@@ -50,6 +50,47 @@ OVERRIDES = {
 }
 
 
+VERSION155 = "155.0.8059.39"
+CORE155 = "ffeb45a2bb88bc56a1dfed31410aeb10e9efcd5a"
+PLATFORM155_COMMITS = {
+    "windows": "989b4382364baaddb8b3180e1eb1030ca96a7273",
+    "linux": "025d99db1673a21992534551598b73ca79360762",
+}
+OVERRIDE155_ROOT = "patches/chromium155"
+OVERRIDES155 = {
+    "0031-third_party-blink-renderer-platform-graphics-image_data_buffer-cc.patch": (
+        "8b86c52d9df1ba45db00a09b293070be90d9dbc7463244c8ddf525017d265b7f",
+        "4f6d2c1d7286d226361af69443810c2cf539a42b622dc4a8bec3910dbf065fd5"),
+    "0049-third_party-blink-renderer-modules-plugins-dom_plugin_array-cc.patch": (
+        "4a454a46e7541c1526607206f492ee4b6f7f9db55ea5ba7e9f5899d213b915f3",
+        "3799f3cf3e8c143da3675789b3431e6ba6151d58be9c2d348b95b3ffcb4969f0"),
+    "0060-third_party-blink-renderer-modules-media_capabilities-media_capabilities-cc.patch": (
+        "e050effa3a2cc8e84809bf5184b6c18417718cb3f9f09a1aa63dadaaf14514bb",
+        "f03940003568f0568c5b81b9fe94f4fce02209b55e6b7492bd7d8589927c5f28"),
+    "0061-third_party-blink-renderer-modules-media_capabilities-media_capabilities-h.patch": (
+        "59fe7e3903d37f1ac92bf5deeb7e22af87938494d02f8e6b89f6671340e5bf9c",
+        "a939e7968448ee4179589a1653d921b38a6968026d8c150519a5575cf117ada9"),
+    "0077-third_party-blink-renderer-modules-canvas-canvas2d-base_rendering_context_2d-h.patch": (
+        "4479b87f37067cecbbe29135af9c80e500bf1e5d068763fec99c5bab033878d5",
+        "148644312c9f40aa74ce630aefdea9167fd39b7a1f018f2e834995be173b29aa"),
+    "0082-third_party-blink-renderer-modules-webgl-webgl_rendering_context_base-cc.patch": (
+        "78da0f157e275f5c219e71b160db13a09c60aad0731b7f857d39c89bc9b0e2a4",
+        "785ca10a8d8eda8847a4183af0ed97d059b3212cbd22804329a4f96b91088212"),
+    "0111-global-privacy-control.patch": (
+        "98af6f9657ebe1c92f2bbd170fa038d97389b6126a2962db50bf16129ab13b79",
+        "0a7ef68eef8a51ebfbfb84ffd7775e56a43b8694feb7052b562ce3397e936040"),
+    "0167-pdf-backend-capability.patch": (
+        "7d2ca45084a5a9b206a6d5e1a7a1e13d53999f1e9786ded9ff5ff657fa09379a",
+        "fa05702f631f2bcdfe5783b0d0c8163a755ade728cc81d8e438f0e52575d476d"),
+    "0177-audio-graph-isolation.patch": (
+        "8afa9f8ee0b8b9f5895183279e99eaf661735fd78052c93143e8da1557918bfc",
+        "0a79069deaeda83a20945f393a156c66de1b73ee54ae261f6c8661132bffd068"),
+    "0222-canvas-readback-shared-noise.patch": (
+        "b86ce9d384d17b0ba0d0d0ca4b9dec8b5b2341afccf821c269735cf301a8fd09",
+        "3260831685393468941ba4fb8869ac7ec9441c8ef4033c6c80ee360ddc8a0045"),
+}
+
+
 MACOS152_VERSION = "152.0.7977.82"
 MACOS152_CORE = "e71b91c6e336d0f25cfc6b9ef09298a9d2506e24"
 MACOS152_PLATFORM = "038db2b41f7aeb00bbceb2f5a56912b26eb5b284"
@@ -140,19 +181,20 @@ def select(repo: Path, platform: str | None = None, *, src: Path | None = None,
             raise SelectionError(str(exc)) from exc
     elif any((repo / name).exists() or (repo / name).is_symlink() for name in
              ("CHROMIUM_VERSION", "CHROMIUM_LINUX_VERSION", "CHROMIUM_WINDOWS_VERSION",
-              "CHROMIUM_MACOS_VERSION", OVERRIDE_ROOT, MACOS152_OVERRIDE_ROOT)):
+              "CHROMIUM_MACOS_VERSION", OVERRIDE_ROOT, MACOS152_OVERRIDE_ROOT,
+              OVERRIDE155_ROOT)):
         raise SelectionError("patch version selection requires complete repository pins")
     version = pins["ChromiumVersion"] if pins else None
     macos152 = platform == "macos" and version == MACOS152_VERSION
     if src is not None and version is not None:
         source_version_path = Path(src) / "chrome/VERSION"
-        if version == VERSION or macos152 or source_version_path.is_symlink():
+        if version in (VERSION, VERSION155) or macos152 or source_version_path.is_symlink():
             observed = source_version(Path(src))
             if observed != version:
                 raise SelectionError("source version does not match selected repository pins")
     if core is not None and version is not None:
         core_version_path = Path(core) / "chromium_version.txt"
-        if version == VERSION or macos152 or core_version_path.is_symlink():
+        if version in (VERSION, VERSION155) or macos152 or core_version_path.is_symlink():
             observed = read(Path(core), "chromium_version.txt").decode("ascii").strip()
             if observed != version:
                 raise SelectionError("core version does not match selected repository pins")
@@ -175,6 +217,24 @@ def select(repo: Path, platform: str | None = None, *, src: Path | None = None,
                     for name in names]
         selection = {"schema_version": 1, "version": VERSION, "platform": platform,
                      "core_commit": core_commit, "platform_commit": PLATFORM_COMMITS[platform],
+                     "base_series_sha256": digest(series)}
+    elif version == VERSION155:
+        if platform not in PLATFORM155_COMMITS:
+            raise SelectionError("Chromium 155 overrides require Windows or Linux")
+        prefix = "Ungoogled" + PLATFORMS[platform]
+        platform_version = VERSION155 + ("-1.1" if platform == "windows" else "-1")
+        if (pins["UngoogledCommit"] != CORE155
+                or pins["UngoogledVersion"] != VERSION155 + "-1"
+                or pins[prefix + "Commit"] != PLATFORM155_COMMITS[platform]
+                or pins[prefix + "Version"] != platform_version):
+            raise SelectionError("Chromium 155 core/platform pins do not match reviewed overrides")
+        validate_overrides(repo, OVERRIDE155_ROOT, OVERRIDES155, "155")
+        if len(names) != 224 or not {"patches/" + name for name in OVERRIDES155}.issubset(names):
+            raise SelectionError("Chromium 155 requires the complete 224-patch base series")
+        selected = [OVERRIDE155_ROOT + "/" + Path(name).name
+                    if Path(name).name in OVERRIDES155 else name for name in names]
+        selection = {"schema_version": 1, "version": VERSION155, "platform": platform,
+                     "core_commit": CORE155, "platform_commit": PLATFORM155_COMMITS[platform],
                      "base_series_sha256": digest(series)}
     elif macos152:
         if (pins["UngoogledCommit"] != MACOS152_CORE
