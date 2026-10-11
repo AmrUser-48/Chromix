@@ -860,7 +860,7 @@ $script:events = [Collections.Generic.List[string]]::new()
 function Write-OutVar($key, $value) { $script:events.Add("$key=$value") }
 function python {
   $script:events.Add('python:' + ($args -join ' '))
-  if ($args -contains '-c') {
+  if ($args -contains '--publish-hop') {
     if ($env:TEST_MODE -eq 'binding-failure') { $global:LASTEXITCODE = 1; return }
     & $env:TEST_PYTHON @args
     $global:LASTEXITCODE = $LASTEXITCODE
@@ -1116,7 +1116,7 @@ $script:events = [Collections.Generic.List[string]]::new()
 function Write-OutVar($key, $value) { $script:events.Add("$key=$value") }
 function python {
   $script:events.Add('python:' + ($args -join ' '))
-  if ($args -contains '-c') {
+  if ($args -contains '--publish-hop') {
     if ($env:TEST_MODE -eq 'binding-failure') { $global:LASTEXITCODE = 1; return }
     & $env:TEST_PYTHON @args
     $global:LASTEXITCODE = $LASTEXITCODE

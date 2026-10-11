@@ -28,6 +28,11 @@ def put(root, name, data):
     return path
 
 
+def run_cli(*args):
+    return subprocess.run([sys.executable, "-X", "utf8", str(ROOT / "tools/verify_windows_snapshot_source.py"), *args],
+                          env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}, capture_output=True, text=True)
+
+
 def git(root, *args):
     env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
     env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull)
@@ -308,6 +313,54 @@ def test_cli_writes_read_only_success_and_failure_reports(fx):
     assert json.loads(Path(args[-1]).read_bytes())["status"] == "failed"
 
 
+@pytest.mark.parametrize("profile", [verify.WINDOWS155_PROFILE, verify.STAGE8_PROFILE])
+@pytest.mark.parametrize("option,value", [
+    ("--workdir", "work"), ("--previous-repo", "previous"), ("--repo", str(ROOT)),
+    ("--expected-previous-sha", verify.WINDOWS155_SHA), ("--arch", "x64"),
+    ("--build-profile", "native"), ("--report", "report.json"),
+])
+def test_publish_cli_rejects_every_verification_argument(tmp_path, profile, option, value):
+    before = snapshot(tmp_path)
+    result = run_cli("--publish-hop", str(tmp_path), "--profile", profile, option, value)
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "not allowed with argument" in result.stderr or "cannot be combined" in result.stderr
+    assert not result.stdout
+    assert snapshot(tmp_path) == before
+
+
+@pytest.mark.parametrize("args", [
+    [], ["--publish-hop", "."], ["--profile", verify.WINDOWS155_PROFILE],
+    ["--publish-hop", ".", "--profile", "155"],
+    ["--publish-hop", ".", "--profile", "windows-153-x64-stage6"],
+    ["--workdir", ".", "--profile", verify.STAGE8_PROFILE],
+    ["--workdir", "."], ["--workdir", ".", "--previous-repo", "previous"],
+    ["--workdir", ".", "--previous-repo", "previous", "--expected-previous-sha", verify.DONOR_SHA],
+])
+def test_cli_rejects_unknown_profiles_and_incomplete_modes(args):
+    result = run_cli(*args)
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "error:" in result.stderr
+    assert not result.stdout
+
+
+def test_powershell_publishes_with_real_script_and_exact_profiles():
+    source = (ROOT / "build/windows/ci-stage.ps1").read_text()
+    start = source.index("\nif ($env:CHROMIX_WINDOWS_VERIFY_SOURCE_REPO -or")
+    block = source[start:source.index("\nif ($env:CHROMIX_WINDOWS_MIGRATION_REPO -or", start)]
+    assert "$recoveryProfile = if ($windows155Verify) { 'windows-155-x64-stage2' } else { 'windows-153-x64-stage8' }" in block
+    invocation = ('& python -X utf8 (Join-Path $Repo "tools\\verify_windows_snapshot_source.py") `\n'
+                  '      --publish-hop $verifyDiagnostics --profile $recoveryProfile')
+    assert invocation in block
+    assert " -c " not in block
+    assert "$publishHop" not in block
+    assert "publish_stage8_hop" not in block
+    assert "publish_windows155_hop" not in block
+    assert block.index('[IO.File]::Copy(') < block.index(invocation)
+    failure = "if ($LASTEXITCODE -ne 0) { throw 'Current checkpoint recovery evidence binding failed' }"
+    assert block.index(invocation) < block.index(failure) < block.index("Write-OutVar recovery_report_dir")
+    assert block.index(failure) < block.index("snapshot_safe true")
+
+
 def test_windows_crlf_checkout_representation_does_not_change_identity(fx, monkeypatch):
     monkeypatch.setattr(verify.identity, "WINDOWS", True)
     for root in (fx.previous, fx.repo):
@@ -369,9 +422,11 @@ def test_stage8_permissions_do_not_expand_historical_preparation_profile():
     assert all(not any(char in name for char in "*?[") for name in verify.STAGE8_ALLOWED_CHANGES)
 
 
+@pytest.mark.parametrize("entrypoint", ["api", "cli"])
 @pytest.mark.parametrize("mutation", ["valid", "wrong-directory", "source-run", "source-target", "source-profile", "source-status",
-    "download-status", "download-phase", "download-publication", "download-artifact", "origin-job", "existing-report", "report-link"])
-def test_stage8_hop_publication_binds_current_identity_paths_and_hashes(tmp_path, monkeypatch, mutation):
+    "download-status", "download-phase", "download-publication", "download-artifact", "origin-job", "existing-report", "report-link",
+    "missing-origin", "missing-download", "missing-source", "wrong-job"])
+def test_stage8_hop_publication_binds_current_identity_paths_and_hashes(tmp_path, monkeypatch, mutation, entrypoint):
     consumer = {"GITHUB_RUN_ID": "90001", "GITHUB_RUN_ATTEMPT": "2", "GITHUB_JOB": "build-8", "GITHUB_SHA": "a" * 40}
     for key, value in consumer.items():
         monkeypatch.setenv(key, value)
@@ -407,10 +462,22 @@ def test_stage8_hop_publication_binds_current_identity_paths_and_hashes(tmp_path
     elif mutation == "report-link":
         destination = put(tmp_path, "historical.json", "preserve\n")
         (hop / "recovery-hop.json").symlink_to(destination)
+    if mutation.startswith("missing-"):
+        name = {"missing-origin": "windows-snapshot.json", "missing-download": "windows-snapshot-download.json",
+                "missing-source": "windows-unchanged-source.json"}[mutation]
+        (hop / name).unlink()
+    elif mutation == "wrong-job":
+        monkeypatch.setenv("GITHUB_JOB", "build-2")
     before = snapshot(hop)
+    if entrypoint == "cli":
+        result = run_cli("--publish-hop", str(hop), "--profile", verify.STAGE8_PROFILE)
+        assert result.returncode == (0 if mutation == "valid" else 1), result.stdout + result.stderr
+        assert json.loads(result.stdout)["status"] == ("verified" if mutation == "valid" else "failed")
     if mutation == "valid":
-        verify.publish_stage8_hop(hop)
+        if entrypoint == "api":
+            verify.publish_stage8_hop(hop)
         report = json.loads((hop / "recovery-hop.json").read_bytes())
+        assert report["profile"] == verify.STAGE8_PROFILE
         assert report["consumer"] == consumer
         assert report["donor"] == verify.STAGE8_DONOR
         for record in report["reports"].values():
@@ -418,8 +485,9 @@ def test_stage8_hop_publication_binds_current_identity_paths_and_hashes(tmp_path
         for name, value in before.items():
             assert snapshot(hop)[name] == value
     else:
-        with pytest.raises((ValueError, OSError, verify.arp.ApplyError)):
-            verify.publish_stage8_hop(hop)
+        if entrypoint == "api":
+            with pytest.raises((ValueError, OSError, verify.arp.ApplyError)):
+                verify.publish_stage8_hop(hop)
         assert snapshot(hop) == before
 
 
@@ -625,9 +693,11 @@ def test_windows155_full_donor_checkout_inputs_reject_later_linux_branch(tmp_pat
         verify._inputs(previous, target, old_tree, changed_tree, verify.WINDOWS155_ALLOWED_CHANGES)
 
 
+@pytest.mark.parametrize("entrypoint", ["api", "cli"])
 @pytest.mark.parametrize("mutation", ["valid", "wrong-directory", "source-run", "source-target", "source-profile", "source-status",
-    "download-status", "download-phase", "download-publication", "download-artifact", "origin-job", "existing-report", "report-link"])
-def test_windows155_hop_publication_binds_current_identity_paths_and_hashes(tmp_path, monkeypatch, mutation):
+    "download-status", "download-phase", "download-publication", "download-artifact", "origin-job", "existing-report", "report-link",
+    "missing-origin", "missing-download", "missing-source", "wrong-job"])
+def test_windows155_hop_publication_binds_current_identity_paths_and_hashes(tmp_path, monkeypatch, mutation, entrypoint):
     consumer = {"GITHUB_RUN_ID": "90001", "GITHUB_RUN_ATTEMPT": "2", "GITHUB_JOB": "build-2", "GITHUB_SHA": "a" * 40}
     for key, value in consumer.items():
         monkeypatch.setenv(key, value)
@@ -663,10 +733,22 @@ def test_windows155_hop_publication_binds_current_identity_paths_and_hashes(tmp_
     elif mutation == "report-link":
         destination = put(tmp_path, "historical.json", "preserve\n")
         (hop / "recovery-hop.json").symlink_to(destination)
+    if mutation.startswith("missing-"):
+        name = {"missing-origin": "windows-snapshot.json", "missing-download": "windows-snapshot-download.json",
+                "missing-source": "windows-unchanged-source.json"}[mutation]
+        (hop / name).unlink()
+    elif mutation == "wrong-job":
+        monkeypatch.setenv("GITHUB_JOB", "build-8")
     before = snapshot(hop)
+    if entrypoint == "cli":
+        result = run_cli("--publish-hop", str(hop), "--profile", verify.WINDOWS155_PROFILE)
+        assert result.returncode == (0 if mutation == "valid" else 1), result.stdout + result.stderr
+        assert json.loads(result.stdout)["status"] == ("verified" if mutation == "valid" else "failed")
     if mutation == "valid":
-        verify.publish_windows155_hop(hop)
+        if entrypoint == "api":
+            verify.publish_windows155_hop(hop)
         report = json.loads((hop / "recovery-hop.json").read_bytes())
+        assert report["profile"] == verify.WINDOWS155_PROFILE
         assert report["consumer"] == consumer
         assert report["donor"] == verify.WINDOWS155_DONOR
         for record in report["reports"].values():
@@ -674,8 +756,9 @@ def test_windows155_hop_publication_binds_current_identity_paths_and_hashes(tmp_
         for name, value in before.items():
             assert snapshot(hop)[name] == value
     else:
-        with pytest.raises((ValueError, OSError, verify.arp.ApplyError)):
-            verify.publish_windows155_hop(hop)
+        if entrypoint == "api":
+            with pytest.raises((ValueError, OSError, verify.arp.ApplyError)):
+                verify.publish_windows155_hop(hop)
         assert snapshot(hop) == before
 
 

@@ -409,14 +409,39 @@ def verify(workdir: Path, previous_repo: Path, repo: Path, expected_previous_sha
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--repo", type=Path, default=TRUSTED_REPO)
-    parser.add_argument("--previous-repo", type=Path, required=True)
-    parser.add_argument("--workdir", type=Path, required=True)
-    parser.add_argument("--expected-previous-sha", required=True)
-    parser.add_argument("--arch", default="x64")
-    parser.add_argument("--build-profile", default="native")
-    parser.add_argument("--report", type=Path, required=True)
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--workdir", type=Path)
+    mode.add_argument("--publish-hop", type=Path)
+    parser.add_argument("--profile", choices=(WINDOWS155_PROFILE, STAGE8_PROFILE))
+    parser.add_argument("--repo", type=Path)
+    parser.add_argument("--previous-repo", type=Path)
+    parser.add_argument("--expected-previous-sha")
+    parser.add_argument("--arch")
+    parser.add_argument("--build-profile")
+    parser.add_argument("--report", type=Path)
     args = parser.parse_args(argv)
+    if args.publish_hop is not None:
+        if any(getattr(args, name) is not None for name in
+               ("repo", "previous_repo", "expected_previous_sha", "arch", "build_profile", "report")):
+            parser.error("--publish-hop cannot be combined with verification arguments")
+        if args.profile is None:
+            parser.error("--publish-hop requires --profile")
+        publish = {WINDOWS155_PROFILE: publish_windows155_hop, STAGE8_PROFILE: publish_stage8_hop}[args.profile]
+        try:
+            publish(args.publish_hop)
+        except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
+            print(json.dumps({"status": "failed", "error": str(exc)}))
+            return 1
+        print(json.dumps({"status": "verified", "report": str(args.publish_hop / "recovery-hop.json")}))
+        return 0
+    if args.profile is not None:
+        parser.error("--profile requires --publish-hop")
+    for name in ("previous_repo", "expected_previous_sha", "report"):
+        if getattr(args, name) is None:
+            parser.error("--workdir requires --" + name.replace("_", "-"))
+    args.repo = args.repo if args.repo is not None else TRUSTED_REPO
+    args.arch = args.arch if args.arch is not None else "x64"
+    args.build_profile = args.build_profile if args.build_profile is not None else "native"
     if args.report.exists() or any(args.report.resolve().is_relative_to(root.resolve())
                                   for root in (args.workdir / "src", args.repo, args.previous_repo)):
         parser.error("report must be a new file outside source/repositories")

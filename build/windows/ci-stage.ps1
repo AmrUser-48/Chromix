@@ -870,16 +870,9 @@ if ($env:CHROMIX_WINDOWS_VERIFY_SOURCE_REPO -or $env:CHROMIX_WINDOWS_VERIFY_SOUR
     [IO.File]::Copy((Join-Path $env:RUNNER_TEMP $name), (Join-Path $verifyDiagnostics $name), $false)
   }
   if ($stage8Verify -or $windows155Verify) {
-    $publishHop = @'
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(sys.argv[1]) / 'tools'))
-from verify_windows_snapshot_source import publish_stage8_hop, publish_windows155_hop
-publish = publish_windows155_hop if sys.argv[3] == "155" else publish_stage8_hop
-publish(Path(sys.argv[2]))
-'@
-    $recoveryVersion = if ($windows155Verify) { '155' } else { '153' }
-    & python -X utf8 -c $publishHop $Repo $verifyDiagnostics $recoveryVersion
+    $recoveryProfile = if ($windows155Verify) { 'windows-155-x64-stage2' } else { 'windows-153-x64-stage8' }
+    & python -X utf8 (Join-Path $Repo "tools\verify_windows_snapshot_source.py") `
+      --publish-hop $verifyDiagnostics --profile $recoveryProfile
     if ($LASTEXITCODE -ne 0) { throw 'Current checkpoint recovery evidence binding failed' }
     Write-OutVar recovery_report_dir $recoveryRelative
     Write-Host "==> current strict recovery evidence: $recoveryRelative"
