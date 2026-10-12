@@ -291,6 +291,7 @@ RESUME_STEPS = """      - name: Validate selected POSIX checkpoint
           SNAPSHOT_ATTEMPT: ${{ inputs.resume_attempt }}
           SNAPSHOT_ARTIFACT_IDS: ${{ inputs.resume_artifact_ids }}
           BUILD_PLATFORM: ${{ inputs.platform }}
+          BUILD_PROFILE: ${{ inputs.build_profile }}
           CACHE_REQUIRED: ${{ inputs.use_upstream_cache }}
           RECOVERY_BRANCH: ${{ github.ref_name }}
           RECOVERY_EVENT: ${{ github.event_name }}
@@ -309,6 +310,12 @@ RESUME_STEPS = """      - name: Validate selected POSIX checkpoint
                [ "$SNAPSHOT_ATTEMPT" = 1 ] && [ "$SNAPSHOT_ARTIFACT_IDS" = 11733517946 ] &&
                [ "$RECOVERY_BRANCH" = build/linux155-compiled-png-recovery ]; then
             RECOVERY_BRANCH=build/linux155-stage2-controller-link
+          elif [ "$BUILD_PLATFORM" = linux ] && [ '${{ inputs.arch }}' = arm64 ] &&
+               [ "$RECOVERY_EVENT" = workflow_dispatch ] && [ "${BUILD_PROFILE:-}" = fast ] &&
+               [ "$SNAPSHOT_RUN_ID" = 38147746377 ] && [ "$SNAPSHOT_STAGE" = 4 ] &&
+               [ "$SNAPSHOT_ATTEMPT" = 1 ] && [ "$SNAPSHOT_ARTIFACT_IDS" = 11734746823 ] &&
+               [ "$RECOVERY_BRANCH" = build/linux155-arm64-stage4-recovery ]; then
+            RECOVERY_BRANCH=build/chromium155-donors-20261011
           fi
           python3 tools/validate_posix_snapshot.py --platform "$BUILD_PLATFORM" --arch '${{ inputs.arch }}' \\
             --recovery-branch "$RECOVERY_BRANCH" \\
