@@ -1,0 +1,101 @@
+name: diagnose-macos-x64-exit
+
+on:
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: diagnose-macos-x64-exit-38188570246
+  cancel-in-progress: false
+
+jobs:
+  diagnose:
+    runs-on: macos-15-intel
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Validate exact repaired-bundle provenance and download
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os, subprocess, zipfile
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP']) / 'exit-evidence'
+          root.mkdir()
+          repo = 'repos/xiaozhou26/Chromix'
+          api = lambda path: json.loads(subprocess.check_output(['gh', 'api', repo + path]))
+          run = api('/actions/runs/38188570246')
+          assert run['id'] == 38188570246 and run['status'] == 'completed' and run['conclusion'] == 'failure'
+          assert run['repository']['full_name'] == run['head_repository']['full_name'] == 'xiaozhou26/Chromix'
+          assert run['head_sha'] == '538ad2ef54b687780ad26bde12796a0428bda60c'
+          assert run['path'] == '.github/workflows/repair-macos-x64-helper.yml'
+          assert run['event'] == 'workflow_dispatch' and run['run_attempt'] == 1
+          assert run['head_branch'] == 'build/macos154-intel-helper-recovery'
+          artifact = api('/actions/artifacts/11721013885')
+          assert artifact['name'] == 'chromix-mac-x64-helper-failed-attempt-1'
+          assert artifact['workflow_run']['id'] == run['id'] and not artifact['expired']
+          assert artifact['workflow_run']['head_sha'] == run['head_sha']
+          assert artifact['size_in_bytes'] == 221879149
+          expected = '65ebc2d28ec40de7e04091cb75cf2134f9200b7bfab69db037f7a68530c68eba'
+          assert artifact['digest'] == 'sha256:' + expected
+          jobs = api('/actions/runs/38188570246/jobs?per_page=100')['jobs']
+          job = next(job for job in jobs if job['id'] == 114616164569)
+          steps = {step['name']: step['conclusion'] for step in job['steps']}
+          for name in ('Repair only helper outputs', 'Verify final live source hashes',
+                       'Package repaired app with structural and ZIP validation',
+                       'Extract the actual ZIP using the SDK extractor'):
+              assert steps[name] == 'success', name
+          assert steps['Mandatory native version and sandboxed headless smoke'] == 'failure'
+          archive = root / 'artifact.zip'
+          with archive.open('wb') as stream:
+              subprocess.run(['gh', 'api', repo + '/actions/artifacts/11721013885/zip'], stdout=stream, check=True)
+          assert archive.stat().st_size == artifact['size_in_bytes']
+          with archive.open('rb') as stream:
+              assert hashlib.file_digest(stream, 'sha256').hexdigest() == expected
+          with zipfile.ZipFile(archive) as z:
+              assert set(z.namelist()) == {'chromix-mac-x64.zip', 'SHA256SUMS'}
+              for name in z.namelist():
+                  (root / name).write_bytes(z.read(name))
+          with (root / 'chromix-mac-x64.zip').open('rb') as stream:
+              assert hashlib.file_digest(stream, 'sha256').hexdigest() == '57ddd56c9d7e6f85ef1df63b7564149dc0bbffa318f92b7ac1e0c6982635aec9'
+          (root / 'provenance.json').write_text(json.dumps({'run': run, 'artifact': artifact, 'job': job}, indent=2))
+          PY
+      - name: Verify structure and extract exact bytes
+        run: |
+          python3 tools/verify_macos_bundle.py --zip "$RUNNER_TEMP/exit-evidence/chromix-mac-x64.zip" --arch x64
+          python3 - <<'PY'
+          import importlib.util, os
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP']) / 'exit-evidence'
+          spec = importlib.util.spec_from_file_location('binary_extract', 'sdk/python/chromix/_binary.py')
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          destination = root / 'bundle'
+          destination.mkdir()
+          module._extract_zip(root / 'chromix-mac-x64.zip', destination)
+          PY
+      - name: Diagnose natural headless exit with early native stack sample
+        run: |
+          python3 tools/macos_exit_diagnostic.py \
+            --browser "$RUNNER_TEMP/exit-evidence/bundle/chromix/Chromium.app/Contents/MacOS/Chromium" \
+            --output "$RUNNER_TEMP/exit-evidence/diagnostic" \
+            --profile "$RUNNER_TEMP/chromix-exit-profile"
+      - name: Preserve diagnostic evidence without publishing
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-x64-exit-diagnostic-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/exit-evidence/provenance.json
+            ${{ runner.temp }}/exit-evidence/diagnostic
+          if-no-files-found: error
+          retention-days: 14
