@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 from pathlib import Path
 import subprocess
 
@@ -31,12 +32,24 @@ def test_production_policy_accepts_exact_donor_without_executing_it(tmp_path):
     fixtures.git(previous, "checkout", "--detach", migration.LINUX155_DONOR)
     old = arp.patch_selection.select(previous, "linux")
     assert arp._sha(arp._json(old[0])) == migration.LINUX155_OLD_IDENTITY
-    assert arp._sha((ROOT / SELECTOR).read_bytes()) == migration.LINUX155_NEW_SELECTOR
+    assert arp._sha((ROOT / SELECTOR).read_bytes()) in migration.LINUX155_SUPPORTING_SELECTORS
     migration._same_inputs(previous, ROOT, "linux", "x64")
     assert len(old[1]) == 224
     assert len(arp.patch_selection.select(ROOT, "linux")[1]) == 225
     assert arp.patch_selection.preparation_key(previous, "linux", "posix") == (
         "019d1bf9296d7e9b037bc5c34307ebc46cd1b1ba8f4cb31bdd2c80416d625cd5")
+    original_selector = subprocess.run(
+        ["git", "-C", str(ROOT), "show", "4666666e2053b4ae093a3086f8de31ce4073080a:" + SELECTOR],
+        check=True, capture_output=True).stdout
+    assert arp._sha(original_selector) == migration.LINUX155_NEW_SELECTOR
+    target = tmp_path / "reviewed-target"
+    shutil.copytree(ROOT / "patches", target / "patches")
+    for name in (*migration.PIN_FILES, *migration.SCRIPT_FILES, *migration.LINUX155_PRESERVED,
+                 migration.LINUX155_MANIFEST):
+        if (ROOT / name).is_file():
+            fixtures.put(target, name, (ROOT / name).read_bytes())
+    fixtures.put(target, SELECTOR, original_selector)
+    migration._same_inputs(previous, target, "linux", "x64")
     fixtures.put(previous, SELECTOR, donor_file(SELECTOR) + b"\n")
     with pytest.raises(arp.ApplyError, match="selector hash"):
         migration._same_inputs(previous, ROOT, "linux", "x64")
