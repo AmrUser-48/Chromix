@@ -239,9 +239,9 @@ def test_current_macos_addition_is_isolated_and_keeps_historical_prefix(tmp_path
     linux_key = selection.preparation_key(repo, "linux", "posix")
     assert len(windows[1]) == 224
     if "additions" in linux[0].get("selection", {}):
-        assert len(linux[1]) == 225
+        assert len(linux[1]) == 226
         assert selection.digest(arp._json(linux[0])) == (
-            "5865eec63d8ecf9683a33406b42ce6557e3f7b37757c39a7fad1cac622e83396")
+            "446ae87099e7804ab8e7d975ade6b1e75c1080e78b84c0bcf58a2f786b373586")
     else:
         assert len(linux[1]) == 224
     shutil.rmtree(repo / selection.MACOS154_ADDITIONS_ROOT)

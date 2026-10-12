@@ -48,7 +48,9 @@ LINUX155_OVERLAY = "025d99db1673a21992534551598b73ca79360762"
 LINUX155_OLD_SELECTOR = "87d06a9ed672af8bfe1065d43d69140c142d1770287d1b82fb9c0e5d2fad4f11"
 LINUX155_NEW_SELECTOR = "9a706c5ec4aca59a1a06154fe7c592746f32c2c28571ee33a7c5d55fd523bb26"
 MACOS154_NEW_SELECTOR = "3eb4381914588389feec36640cfd70c7838c38d9da2ba0ab34c3e53dfa3281f3"
-LINUX155_SUPPORTING_SELECTORS = (LINUX155_NEW_SELECTOR, MACOS154_NEW_SELECTOR)
+LINUX155_PNG_SELECTOR = "7e59710e98b88556c19d5cf53563eee0dc4f94b2cdabed0051adcad68fe11542"
+LINUX155_SUPPORTING_SELECTORS = (LINUX155_NEW_SELECTOR, MACOS154_NEW_SELECTOR, LINUX155_PNG_SELECTOR)
+MACOS154_SUPPORTING_SELECTORS = (MACOS154_NEW_SELECTOR, LINUX155_PNG_SELECTOR)
 LINUX155_MANIFEST = "build/patch-additions-linux155.json"
 LINUX155_MANIFEST_SHA256 = "28fb67c9207bfe6e9b8314a0e56856c5136cc6a98461ad826f9ad7e8c4fbe38f"
 LINUX155_PATCH = "patches/chromium155-linux/0225-managed-profile-controller-link.patch"
@@ -72,6 +74,13 @@ MACOS154_PATCH = "patches/chromium154-macos/0226-headless-command-explicit-quit.
 MACOS154_PATCH_SHA256 = "ec1868b516e0ffea9366952f1e2d9c424aa2d5555b0e12d2bc456fd631d0ab73"
 MACOS154_OLD_IDENTITY = "832840b6e1089964c28c35c8b68796b666d4159d2fc6919775231312c35051f2"
 MACOS154_PRESERVED = LINUX155_PRESERVED
+
+LINUX155_PNG_DONOR = "12a501c7abe607552c49d5daaabf29d891dde9ae"
+LINUX155_PNG_OLD_IDENTITY = "5865eec63d8ecf9683a33406b42ce6557e3f7b37757c39a7fad1cac622e83396"
+LINUX155_PNG_MANIFEST_SHA256 = "5480c06026cf67f27f23fc4bdff4122c294cb0a8a16c4b5dfd7865a72e6c6f1f"
+LINUX155_PNG_PATCH = "patches/chromium155-linux/0227-opaque-png-export-consistency.patch"
+LINUX155_PNG_PATCH_SHA256 = "4c048a50930c3541a3bb9e4442ad7f18e94c04ebccf86c0cfbfc286b15a70751"
+LINUX155_PNG_SOURCE = "third_party/blink/renderer/core/html/canvas/canvas_async_blob_creator.cc"
 
 
 def _pins(repo: Path, platform: str) -> dict:
@@ -144,6 +153,53 @@ def _linux155_selector_transition(previous: Path, repo: Path, platform: str,
         raise arp.ApplyError("Linux155 migration must preserve root series bytes")
 
 
+def _linux155_png_selector_transition(previous: Path, repo: Path, platform: str,
+                                      arch: str | None) -> None:
+    """Authenticate the compiled 225-patch donor and one opaque PNG addition."""
+    if (platform, arch) != ("linux", "x64"):
+        raise arp.ApplyError("Linux155 PNG selector transition requires linux x64")
+    selector = "tools/patch_selection.py"
+    if (arp._sha(arp._read(previous, selector)) != LINUX155_NEW_SELECTOR
+            or arp._sha(arp._read(repo, selector)) != LINUX155_PNG_SELECTOR):
+        raise arp.ApplyError("Linux155 PNG migration selector hash mismatch")
+    if _donor_git(previous, repo, "rev-parse", "HEAD").decode().strip() != LINUX155_PNG_DONOR:
+        raise arp.ApplyError("Linux155 PNG migration requires exact compiled donor HEAD")
+    pins = _pins(repo, platform)
+    if tuple(pins[key] for key in ("ChromiumVersion", "UngoogledCommit", "UngoogledLinuxCommit")) != (
+            LINUX155_VERSION, LINUX155_CORE, LINUX155_OVERLAY):
+        raise arp.ApplyError("Linux155 PNG migration core/platform/version mismatch")
+    for name in dict.fromkeys((*PIN_FILES, *SCRIPT_FILES, *LINUX155_PRESERVED, "patches/series")):
+        original = arp._read(previous, name)
+        if original != _donor_git(previous, repo, "cat-file", "blob", LINUX155_PNG_DONOR + ":" + name):
+            raise arp.ApplyError("Linux155 PNG donor preparation bytes changed: " + name)
+        if name != selector and original != arp._read(repo, name):
+            raise arp.ApplyError("Linux155 PNG migration requires preserved inputs: " + name)
+        if name in LINUX155_PRESERVED and original != arp._read(Path(__file__).resolve().parents[1], name):
+            raise arp.ApplyError("Linux155 PNG migration requires trusted preparation tooling: " + name)
+    if (arp._sha(arp._read(previous, LINUX155_MANIFEST)) != LINUX155_MANIFEST_SHA256
+            or arp._sha(arp._read(repo, LINUX155_MANIFEST)) != LINUX155_PNG_MANIFEST_SHA256):
+        raise arp.ApplyError("Linux155 PNG migration manifest hash mismatch")
+    patch = arp._read(repo, LINUX155_PNG_PATCH)
+    if arp._sha(patch) != LINUX155_PNG_PATCH_SHA256:
+        raise arp.ApplyError("Linux155 PNG migration addition hash mismatch")
+    if arp.transform_patch(patch, set(), [])[1] != [(LINUX155_PNG_SOURCE, "modify", None)]:
+        raise arp.ApplyError("Linux155 PNG migration addition must only modify async canvas")
+    old, old_patches = arp.patch_selection.select(previous, platform)
+    current, patches = arp.patch_selection.select(repo, platform)
+    if (len(old_patches) != 225 or len(patches) != 226
+            or patches != [*old_patches, (LINUX155_PNG_PATCH, patch)]
+            or arp._sha(arp._json(old)) != LINUX155_PNG_OLD_IDENTITY):
+        raise arp.ApplyError("Linux155 PNG migration requires identical historical 225-patch prefix")
+    expected = dict(old["selection"], additions={
+        "schema_version": 2, "kind": "linux155-compiled-png-recovery",
+        "manifest": {"path": LINUX155_MANIFEST, "sha256": LINUX155_PNG_MANIFEST_SHA256},
+        "patches": [{"path": LINUX155_PATCH, "sha256": LINUX155_PATCH_SHA256},
+                    {"path": LINUX155_PNG_PATCH, "sha256": LINUX155_PNG_PATCH_SHA256}],
+    })
+    if current["selection"] != expected:
+        raise arp.ApplyError("Linux155 PNG migration selection identity changed")
+
+
 def _macos154_selector_transition(previous: Path, repo: Path, platform: str,
                                   arch: str | None) -> None:
     """Authenticate one historical selector as data; execute only the current selector."""
@@ -151,7 +207,7 @@ def _macos154_selector_transition(previous: Path, repo: Path, platform: str,
         raise arp.ApplyError("macOS154 selector transition requires macos x64/arm64")
     selector = "tools/patch_selection.py"
     if (arp._sha(arp._read(previous, selector)) != MACOS154_OLD_SELECTOR
-            or arp._sha(arp._read(repo, selector)) != MACOS154_NEW_SELECTOR):
+            or arp._sha(arp._read(repo, selector)) not in MACOS154_SUPPORTING_SELECTORS):
         raise arp.ApplyError("macOS154 migration selector hash mismatch")
     if _donor_git(previous, repo, "rev-parse", "HEAD").decode().strip() != MACOS154_DONOR:
         raise arp.ApplyError("macOS154 migration requires exact donor HEAD")
@@ -189,6 +245,10 @@ def _macos154_selector_transition(previous: Path, repo: Path, platform: str,
 
 def _same_inputs(previous: Path, repo: Path, platform: str = "linux",
                  arch: str | None = None) -> None:
+    png_transition = (platform == "linux" and (repo / LINUX155_MANIFEST).is_file()
+                      and arp._sha(arp._read(repo, LINUX155_MANIFEST)) == LINUX155_PNG_MANIFEST_SHA256)
+    if png_transition:
+        _linux155_png_selector_transition(previous, repo, platform, arch)
     macos_transition = (platform == "macos" and arp._read(previous, "tools/patch_selection.py")
                         != arp._read(repo, "tools/patch_selection.py"))
     if macos_transition:
@@ -204,17 +264,20 @@ def _same_inputs(previous: Path, repo: Path, platform: str = "linux",
                 raise arp.ApplyError(f"migration requires identical pins/preparation tooling: {name}")
         if arp._read(previous, name) != arp._read(repo, name):
             if name == "tools/patch_selection.py":
-                if not macos_transition:
-                    _linux155_selector_transition(previous, repo, platform, arch)
+                if not macos_transition and not png_transition:
+                    if arp._sha(arp._read(previous, name)) == LINUX155_NEW_SELECTOR:
+                        _linux155_png_selector_transition(previous, repo, platform, arch)
+                    else:
+                        _linux155_selector_transition(previous, repo, platform, arch)
             else:
                 raise arp.ApplyError(f"migration requires identical pins/preparation tooling: {name}")
     for name in SCRIPT_FILES:
         if (name == "tools/patch_selection.py" and platform == "linux"
                 and arp._read(previous, name) != arp._read(repo, name)):
-            # The Linux transition already authenticated one of two reviewed selectors.
+            # The Linux transition already authenticated its exact reviewed selector.
             continue
         # The exact macOS donor tooling was authenticated above, never executed here.
-        if macos_transition and name in MACOS154_PRESERVED:
+        if macos_transition and name in (*MACOS154_PRESERVED, "tools/patch_selection.py"):
             continue
         if arp._read(repo, name) != arp._read(Path(__file__).resolve().parents[1], name):
             raise arp.ApplyError(f"repository preparation tooling differs from running trusted checkout: {name}")

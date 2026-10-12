@@ -62,7 +62,8 @@ PLATFORM155_COMMITS = {
 OVERRIDE155_ROOT = "patches/chromium155"
 LINUX155_ADDITIONS_ROOT = "patches/chromium155-linux"
 LINUX155_ADDITIONS_MANIFEST = "build/patch-additions-linux155.json"
-LINUX155_ADDITIONS_SHA256 = "28fb67c9207bfe6e9b8314a0e56856c5136cc6a98461ad826f9ad7e8c4fbe38f"
+LINUX155_LEGACY_ADDITIONS_SHA256 = "28fb67c9207bfe6e9b8314a0e56856c5136cc6a98461ad826f9ad7e8c4fbe38f"
+LINUX155_ADDITIONS_SHA256 = "5480c06026cf67f27f23fc4bdff4122c294cb0a8a16c4b5dfd7865a72e6c6f1f"
 OVERRIDES155 = {
     "0031-third_party-blink-renderer-platform-graphics-image_data_buffer-cc.patch": (
         "8b86c52d9df1ba45db00a09b293070be90d9dbc7463244c8ddf525017d265b7f",
@@ -168,7 +169,7 @@ def linux155_additions(repo: Path) -> tuple[list[str], dict | None]:
             raise SelectionError("Linux155 additions directory requires its pinned manifest")
         return [], None
     raw = read(repo, LINUX155_ADDITIONS_MANIFEST)
-    if digest(raw) != LINUX155_ADDITIONS_SHA256:
+    if digest(raw) not in (LINUX155_LEGACY_ADDITIONS_SHA256, LINUX155_ADDITIONS_SHA256):
         raise SelectionError("changed Linux155 additions manifest")
     additions = json.loads(raw)
     if directory.is_symlink() or not directory.is_dir():
