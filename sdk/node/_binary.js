@@ -17,12 +17,12 @@ export const CHANNELS = {
 };
 const PLATFORM_CHANNELS = {
   "linux-x64": {
-    stable: { tag: "v154.0.8037.97" },
-    latest: { tag: "v154.0.8037.97" },
+    stable: { tag: "v155.0.8059.39" },
+    latest: { tag: "v155.0.8059.39" },
   },
   "linux-arm64": {
-    stable: { tag: "v154.0.8037.97" },
-    latest: { tag: "v154.0.8037.97" },
+    stable: { tag: "v155.0.8059.39" },
+    latest: { tag: "v155.0.8059.39" },
   },
   "win-x64": {
     stable: { tag: "v154.0.8037.97" },
@@ -32,6 +32,11 @@ const PLATFORM_CHANNELS = {
     stable: { tag: "v154.0.8037.97" },
     latest: { tag: "v154.0.8037.97" },
   },
+};
+// Preserve historical major pins after Linux channel promotion.
+const PLATFORM_VERSIONS = {
+  "linux-x64": { "154": "v154.0.8037.97" },
+  "linux-arm64": { "154": "v154.0.8037.97" },
 };
 export const CACHE = process.env.CHROMIX_CACHE_DIR || join(homedir(), ".cache", "chromix");
 export const hostFor = (tag) => process.env.CHROMIX_DOWNLOAD_HOST
@@ -52,6 +57,8 @@ export function resolveRelease(plat, browserVersion, releaseChannel) {
     const major = ver.replace(/^v/, "");
     for (const [name, spec] of Object.entries(channels))
       if (spec.tag.slice(1).split(".")[0] === major) return { channel: name, tag: spec.tag };
+    const historical = PLATFORM_VERSIONS[plat]?.[major];
+    if (historical) return { channel: null, tag: historical };
     for (const spec of Object.values(CHANNELS))
       if (spec.tag.slice(1).split(".")[0] === major) return { channel: null, tag: spec.tag };
   }

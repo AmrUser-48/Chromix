@@ -24,12 +24,12 @@ _CHANNELS = {
 }
 _PLATFORM_CHANNELS = {
     "linux-x64": {
-        "stable": {"tag": "v154.0.8037.97"},
-        "latest": {"tag": "v154.0.8037.97"},
+        "stable": {"tag": "v155.0.8059.39"},
+        "latest": {"tag": "v155.0.8059.39"},
     },
     "linux-arm64": {
-        "stable": {"tag": "v154.0.8037.97"},
-        "latest": {"tag": "v154.0.8037.97"},
+        "stable": {"tag": "v155.0.8059.39"},
+        "latest": {"tag": "v155.0.8059.39"},
     },
     "win-x64": {
         "stable": {"tag": "v154.0.8037.97"},
@@ -39,6 +39,11 @@ _PLATFORM_CHANNELS = {
         "stable": {"tag": "v154.0.8037.97"},
         "latest": {"tag": "v154.0.8037.97"},
     },
+}
+# Preserve historical major pins after Linux channel promotion.
+_PLATFORM_VERSIONS = {
+    "linux-x64": {"154": "v154.0.8037.97"},
+    "linux-arm64": {"154": "v154.0.8037.97"},
 }
 _CACHE = Path(os.environ.get("CHROMIX_CACHE_DIR",
                              Path.home() / ".cache" / "chromix"))
@@ -63,6 +68,9 @@ def _resolve_release(plat: str, browser_version: str | None = None,
         for name, spec in channels.items():
             if spec["tag"][1:].split(".")[0] == major:
                 return name, spec["tag"]
+        historical = _PLATFORM_VERSIONS.get(plat, {}).get(major)
+        if historical:
+            return None, historical
         for spec in _CHANNELS.values():
             if spec["tag"][1:].split(".")[0] == major:
                 return None, spec["tag"]

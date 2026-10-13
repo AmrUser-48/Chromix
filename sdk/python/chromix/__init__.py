@@ -36,7 +36,7 @@ from .api import (
 from .cookies import (export_cookies, import_cookies, export_cookies_async,
                       import_cookies_async, encrypt_cookies, decrypt_cookies)
 
-__version__ = "152.0.7977.82.post4"
+__version__ = "152.0.7977.82.post5"
 
 __all__ = [
     "launch", "launch_async", "launch_context", "launch_context_async",

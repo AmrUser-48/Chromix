@@ -38,7 +38,7 @@ class LicenseMetadataRegressionTest(unittest.TestCase):
     def test_node_package_includes_license_and_repository_metadata(self):
         package = json.loads(NODE_PACKAGE.read_text(encoding="utf-8"))
         self.assertEqual(package["name"], "@xiaoxiaofeihh/chromix")
-        self.assertEqual(package["version"], "0.1.4")
+        self.assertEqual(package["version"], "0.1.5")
         self.assertEqual(package["publishConfig"]["access"], "public")
         self.assertEqual(package["license"], "BSD-3-Clause")
         self.assertIn("LICENSE", package["files"])
@@ -46,11 +46,11 @@ class LicenseMetadataRegressionTest(unittest.TestCase):
         self.assertEqual(package["bugs"]["url"], "https://github.com/xiaozhou26/Chromix/issues")
 
     def test_sdk_package_versions_match_runtime_and_lock_metadata(self):
-        python_version = "152.0.7977.82.post4"
+        python_version = "152.0.7977.82.post5"
         self.assertIn(f'version = "{python_version}"', PYPROJECT.read_text(encoding="utf-8"))
         python_init = REPO / "sdk" / "python" / "chromix" / "__init__.py"
         self.assertIn(f'__version__ = "{python_version}"', python_init.read_text(encoding="utf-8"))
-        node_version = "0.1.4"
+        node_version = "0.1.5"
         package = json.loads(NODE_PACKAGE.read_text(encoding="utf-8"))
         lock = json.loads(NODE_PACKAGE.with_name("package-lock.json").read_text(encoding="utf-8"))
         self.assertEqual(package["version"], node_version)
@@ -58,6 +58,20 @@ class LicenseMetadataRegressionTest(unittest.TestCase):
         self.assertEqual(lock["packages"][""]["version"], node_version)
         self.assertIn(f'export const VERSION = "{node_version}";',
                       NODE_PACKAGE.with_name("index.js").read_text(encoding="utf-8"))
+
+    def test_sdk_docs_match_release_versions_and_platform_limits(self):
+        for path, version in ((PYTHON_README, "152.0.7977.82.post5"), (NODE_README, "0.1.5")):
+            with self.subTest(path=path):
+                readme = path.read_text(encoding="utf-8")
+                normalized = " ".join(readme.split())
+                self.assertIn(f"SDK package version `{version}`", normalized)
+                for arch in ("x64", "arm64"):
+                    self.assertIn(f"| Linux {arch} | `v155.0.8059.39` | `v155.0.8059.39` |", readme)
+                    self.assertIn(f"| Windows {arch} | `v154.0.8037.97` | `v154.0.8037.97` |", readme)
+                self.assertIn("| macOS x64 / arm64 | `v151.0.7922.173` | `v152.0.7977.75` |", readme)
+                self.assertIn("SDK package version is not the browser version", normalized)
+                self.assertIn("`full=false`: dedicated noise validation was not covered", normalized)
+                self.assertIn("An exact 155 pin does not declare Windows or macOS 155 availability", normalized)
 
     def test_browser_packages_keep_chromix_and_chromium_licenses(self):
         windows = PACKAGE_WIN.read_text(encoding="utf-8")

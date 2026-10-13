@@ -543,20 +543,31 @@ Channel tags are built into the installed SDK and resolved independently by plat
 
 | Platform | `stable` (default) | `latest` |
 |---|---|---|
-| Linux x64 | `v154.0.8037.97` | `v154.0.8037.97` |
-| Linux arm64 | `v154.0.8037.97` | `v154.0.8037.97` |
+| Linux x64 | `v155.0.8059.39` | `v155.0.8059.39` |
+| Linux arm64 | `v155.0.8059.39` | `v155.0.8059.39` |
 | Windows x64 | `v154.0.8037.97` | `v154.0.8037.97` |
 | Windows arm64 | `v154.0.8037.97` | `v154.0.8037.97` |
 | macOS x64 / arm64 | `v151.0.7922.173` | `v152.0.7977.75` |
 
-Linux x64/arm64 and Windows x64/arm64 select Chromium 154 assets in this rollout.
+Linux x64/arm64 select Chromium 155 assets in this rollout. Windows x64/arm64
+remain on Chromium 154.
 macOS retains its prior channel mappings; `latest` does not mean GitHub's
 globally newest release. Major `151` still selects `v151.0.7922.173`, and `152`
 selects `v152.0.7977.75`, including on Linux x64/arm64 and Windows x64/arm64. Major `154` is
-available only on Linux x64/arm64 and Windows x64/arm64. A full version such as `154.0.8037.97`
-or `v154.0.8037.97` pins that exact release tag on any platform: it never substitutes the channel's patch
-version. Explicit pins require a published asset for that platform (or a complete
-cached bundle); missing assets fail without falling back to another version.
+available only on Linux x64/arm64 and Windows x64/arm64, retaining
+`v154.0.8037.97` even after Linux channel promotion. Major `155` (or `v155`)
+selects `v155.0.8059.39` only on Linux x64/arm64; it is rejected on Windows
+and macOS. A full version such as `155.0.8059.39` or `v155.0.8059.39`
+pins that exact release tag on any platform: it never substitutes the channel's
+patch version or establishes that the platform has an asset. Explicit pins
+require a published asset for that platform (or a complete cached bundle);
+missing assets fail without falling back to another version.
+An exact 155 pin does not declare Windows or macOS 155 availability.
+
+The SDK package version is not the browser version; the compatibility matrix
+above determines the default browser. Linux 155 runtime acceptance remains
+`full=false`: dedicated noise validation was not covered. Neither the release
+nor passing SDK tests constitute an all-features-passed runtime claim.
 
 `binary_info()` and CLI `info` report the same selected release/cache metadata used
 by installation, not the version of `CLOAKBROWSER_BINARY_PATH`. The `channel`
@@ -573,7 +584,7 @@ or change the built-in channel mapping.
 
 ### Upgrade from this checkout
 
-This checkout uses SDK package version `152.0.7977.82.post4` with the mappings above.
+This checkout uses SDK package version `152.0.7977.82.post5` with the mappings above.
 An already installed registry package does not acquire these mappings automatically.
 From the repository root,
 install the updated Python SDK with `python -m pip install --upgrade ./sdk/python`,

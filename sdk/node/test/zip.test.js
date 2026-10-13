@@ -114,7 +114,7 @@ for (const [platform, arch, plat] of [["linux", "x64", "linux-x64"], ["linux", "
   ["darwin", "x64", "mac-x64"], ["darwin", "arm64", "mac-arm64"]]) {
   test(`ZIP download, public API and cache: ${plat}`, async (t) => {
     mockPlatform(t, platform, arch);
-    const tag = ["linux-x64", "linux-arm64", "win-x64", "win-arm64"].includes(plat) ? "v154.0.8037.97" : "v151.0.7922.173";
+    const tag = plat.startsWith("linux-") ? "v155.0.8059.39" : plat.startsWith("win-") ? "v154.0.8037.97" : "v151.0.7922.173";
     const urls = mockRelease(t, plat, zipFixture(bundle(plat)));
     assert.equal(binary.resolvePlatform(), plat);
     assert.equal(api.binaryInfo(options).installed, false);
@@ -241,7 +241,7 @@ for (const [platform, arch, plat] of [["linux", "x64", "linux-x64"], ["linux", "
 for (const missing of ["launcher", "binary", "directory", "external-link"]) {
   test(`public API rejects incomplete ${plat} cache: ${missing}`, { skip: missing === "external-link" && process.platform === "win32" }, async (t) => {
     mockPlatform(t, platform, arch);
-    const tag = ["linux-x64", "linux-arm64", "win-x64", "win-arm64"].includes(plat) ? "v154.0.8037.97" : "v151.0.7922.173";
+    const tag = plat.startsWith("linux-") ? "v155.0.8059.39" : plat.startsWith("win-") ? "v154.0.8037.97" : "v151.0.7922.173";
     const root = join(cache, tag, plat);
     const launcher = join(root, binary.ASSETS[plat].launcher), chrome = binary.binaryPath(plat, root);
     mkdirSync(dirname(chrome), { recursive: true });
@@ -358,7 +358,7 @@ for (const [platform, arch, plat] of [["linux", "x64", "linux-x64"], ["linux", "
     test(`platform channel, install and CLI agree: ${plat} ${channel || "default"}`, async (t) => {
       mockPlatform(t, platform, arch);
       process.env.CLOAKBROWSER_RELEASE_CHANNEL = channel;
-      const version = ["linux-x64", "linux-arm64", "win-x64", "win-arm64"].includes(plat) ? "154.0.8037.97" :
+      const version = plat.startsWith("linux-") ? "155.0.8059.39" : plat.startsWith("win-") ? "154.0.8037.97" :
         channel === "latest" ? "152.0.7977.75" : "151.0.7922.173";
       const urls = mockRelease(t, plat, zipFixture(bundle(plat)));
       assert.equal(api.binaryInfo().version, version);
@@ -396,7 +396,7 @@ for (const [platform, arch, plat] of [["linux", "x64", "linux-x64"], ["linux", "
       const urls = mockRelease(t, plat, zipFixture(bundle(plat)));
       const promoted = ["linux-x64", "linux-arm64", "win-x64", "win-arm64"].includes(plat);
       assert.equal(api.binaryInfo({ releaseChannel: channel }).installed, !promoted);
-      const selectedTag = promoted ? "v154.0.8037.97" : oldTag;
+      const selectedTag = plat.startsWith("linux-") ? "v155.0.8059.39" : promoted ? "v154.0.8037.97" : oldTag;
       assert.equal(await api.ensureBinary({ releaseChannel: channel }), binary.binaryPath(plat, join(cache, selectedTag, plat)));
       assert.equal(urls.length, promoted ? 2 : 0);
       assert.equal(await api.ensureBinary({ browserVersion: oldTag }), oldChrome);
@@ -427,6 +427,13 @@ for (const [platform, arch, plat] of [["linux", "x64", "linux-x64"], ["linux", "
     mockPlatform(t, platform, arch);
     if (["linux-x64", "linux-arm64", "win-x64", "win-arm64"].includes(plat)) assert.equal(api.binaryInfo({ browserVersion: "154" }).version, "154.0.8037.97");
     else assert.throws(() => api.binaryInfo({ browserVersion: "154" }), /Unsupported browser version/);
+    for (const version of ["155", "v155"]) {
+      if (plat.startsWith("linux-")) assert.equal(api.binaryInfo({ browserVersion: version }).version, "155.0.8059.39");
+      else {
+        assert.throws(() => api.binaryInfo({ browserVersion: version }), /Unsupported browser version/);
+        await assert.rejects(api.ensureBinary({ browserVersion: version }), /Unsupported browser version/);
+      }
+    }
     for (const version of ["15", "999", "152.0", "../154.0.8037.97"]) {
       assert.throws(() => api.binaryInfo({ browserVersion: version }), /Unsupported browser version/);
       await assert.rejects(api.ensureBinary({ browserVersion: version }), /Unsupported browser version/);
@@ -448,7 +455,7 @@ for (const [platform, arch, plat] of [["linux", "x64", "linux-x64"], ["linux", "
     process.env.CLOAKBROWSER_BINARY_PATH = local;
     assert.equal(await api.ensureBinary({ browserVersion: "invalid", releaseChannel: "invalid" }), local);
     const info = api.binaryInfo();
-    assert.equal(info.version, ["linux-x64", "linux-arm64", "win-x64", "win-arm64"].includes(plat) ? "154.0.8037.97" : "151.0.7922.173");
+    assert.equal(info.version, plat.startsWith("linux-") ? "155.0.8059.39" : plat.startsWith("win-") ? "154.0.8037.97" : "151.0.7922.173");
     assert.equal(info.installed, false);
     assert.equal(info.path, null);
     rmSync(local);
@@ -459,8 +466,8 @@ for (const [platform, arch, plat] of [["linux", "x64", "linux-x64"], ["linux", "
     test(`update requires newer platform asset: ${plat} ${scenario}`, async (t) => {
       mockPlatform(t, platform, arch);
       process.env.CLOAKBROWSER_RELEASE_CHANNEL = "latest";
-      const current = ["linux-x64", "linux-arm64", "win-x64", "win-arm64"].includes(plat) ? "154.0.8037.97" : "152.0.7977.75";
-      let candidate = scenario === "matching" ? "155.0.1.2" : "154.0.8037.97";
+      const current = plat.startsWith("linux-") ? "155.0.8059.39" : plat.startsWith("win-") ? "154.0.8037.97" : "152.0.7977.75";
+      let candidate = scenario === "matching" ? "156.0.1.2" : "154.0.8037.97";
       if (scenario === "older") candidate = "151.0.7922.173";
       if (scenario === "invalid") candidate = "not-a-version";
       t.mock.method(globalThis, "fetch", async (url) => {
@@ -474,7 +481,7 @@ for (const [platform, arch, plat] of [["linux", "x64", "linux-x64"], ["linux", "
         updateAvailable: scenario === "matching",
       });
       assert.equal((await api.checkForUpdate({ browserVersion: "155.0.1.2", releaseChannel: "stable" })).currentVersion,
-        ["linux-x64", "linux-arm64", "win-x64", "win-arm64"].includes(plat) ? "154.0.8037.97" : "151.0.7922.173");
+        plat.startsWith("linux-") ? "155.0.8059.39" : plat.startsWith("win-") ? "154.0.8037.97" : "151.0.7922.173");
     });
   }
 }
@@ -532,3 +539,57 @@ test("updates use exact environment and per-call versions", async (t) => {
   Object.defineProperty(process, "platform", { value: "freebsd", configurable: true });
   assert.equal((await api.checkForUpdate()).updateAvailable, false);
 });
+
+
+for (const [arch, plat] of [["x64", "linux-x64"], ["arm64", "linux-arm64"]])
+for (const version of ["155", "v155", "155.0.8059.39", "v155.0.8059.39", "154", "v154"]) {
+  test(`Linux release selector installs exact tag: ${plat} ${version}`, async (t) => {
+    mockPlatform(t, "linux", arch);
+    const expected = version.replace(/^v/, "") === "154" ? "154.0.8037.97" : "155.0.8059.39";
+    process.env.CLOAKBROWSER_VERSION = version;
+    const info = api.binaryInfo();
+    assert.equal(info.version, expected);
+    assert.equal(info.channel, ["155", "v155"].includes(version) ? "stable" : null);
+    const urls = mockRelease(t, plat, zipFixture(bundle(plat)));
+    assert.equal(await api.ensureBinary(), binary.binaryPath(plat, join(cache, `v${expected}`, plat)));
+    assert.equal(api.binaryInfo().installed, true);
+    assert.deepEqual(urls, [`${host}/chromix-${plat}.zip`, `${host}/SHA256SUMS`]);
+  });
+}
+
+for (const [platform, arch, plat] of [["linux", "x64", "linux-x64"], ["linux", "arm64", "linux-arm64"],
+  ["win32", "x64", "win-x64"], ["win32", "arm64", "win-arm64"],
+  ["darwin", "x64", "mac-x64"], ["darwin", "arm64", "mac-arm64"]]) {
+  for (const version of ["155.0.8059.39", "v155.0.8059.39"]) {
+    test(`missing exact 155 never uses available 154: ${plat} ${version}`, async (t) => {
+      mockPlatform(t, platform, arch);
+      const oldRoot = join(cache, "v154.0.8037.97", plat), oldChrome = binary.binaryPath(plat, oldRoot);
+      mkdirSync(dirname(oldChrome), { recursive: true });
+      writeFileSync(oldChrome, "old browser");
+      writeFileSync(join(oldRoot, binary.ASSETS[plat].launcher), "old launcher");
+      const urls = mockRelease(t, plat, Buffer.alloc(0), "http");
+      await assert.rejects(api.ensureBinary({ browserVersion: version }), /download failed: 404/);
+      const info = api.binaryInfo({ browserVersion: version });
+      assert.equal(info.version, "155.0.8059.39");
+      assert.equal(info.channel, null);
+      assert.equal(info.installed, false);
+      assert.equal(info.path, null);
+      assert.equal(await api.ensureBinary({ browserVersion: "154.0.8037.97" }), oldChrome);
+      assert.equal(readFileSync(oldChrome, "utf8"), "old browser");
+      assert.deepEqual(urls, [`${host}/chromix-${plat}.zip`]);
+    });
+  }
+
+  test(`Linux-only 155 release is not an update for other platforms: ${plat}`, async (t) => {
+    mockPlatform(t, platform, arch);
+    t.mock.method(globalThis, "fetch", async () => Response.json({
+      tag_name: "v155.0.8059.39",
+      assets: [{ name: "chromix-linux-x64.zip" }, { name: "chromix-linux-arm64.zip" }],
+    }));
+    assert.deepEqual(await api.checkForUpdate({ browserVersion: "154.0.8037.97" }), {
+      currentVersion: "154.0.8037.97",
+      latestVersion: plat.startsWith("linux-") ? "155.0.8059.39" : "154.0.8037.97",
+      updateAvailable: plat.startsWith("linux-"),
+    });
+  });
+}
