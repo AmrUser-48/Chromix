@@ -10,8 +10,24 @@
       "sha256": "4c048a50930c3541a3bb9e4442ad7f18e94c04ebccf86c0cfbfc286b15a70751"
     },
     {
-      "path": "patches/chromium155-windows/0228-synchronous-launch-timezone.patch",
-      "sha256": "354c8c86228f6f937e8f61a0a7305d24a78a17c29be09c4c603b56cf787009e4"
+      "path": "patches/chromium155-windows/0228-timezone-default-declaration.patch",
+      "sha256": "c750f8888d986d6fbbaea16f3ca37d1543625a1281f5bd1562563d496f0daf7d"
+    },
+    {
+      "path": "patches/chromium155-windows/0229-timezone-default-implementation.patch",
+      "sha256": "3d6dd6aa4d02ff005886f27e3312c083d5385511d3303b0184a520ca3e3f3006"
+    },
+    {
+      "path": "patches/chromium155-windows/0230-blink-default-timezone-api.patch",
+      "sha256": "0495c11554fc2dd6b2e1b0e2d058ee2e9995ba6f8ccec64c149b6fe62ebcbd43"
+    },
+    {
+      "path": "patches/chromium155-windows/0231-blink-default-timezone-bridge.patch",
+      "sha256": "00274260ba64724d5cae1222ff981dd45c177bad07a9ad7fbd675c7b08426836"
+    },
+    {
+      "path": "patches/chromium155-windows/0232-renderer-launch-timezone-install.patch",
+      "sha256": "345ef39c9cc6d987f59c44f3f4a46099391d6c629058f10c1151e02a654796a7"
     }
   ]
 }

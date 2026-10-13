@@ -15,7 +15,13 @@ from test_fingerprint_features import block
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = Path(__file__).with_name("fixtures")
-PATCH = "patches/chromium155-windows/0228-synchronous-launch-timezone.patch"
+PATCHES = tuple("patches/chromium155-windows/" + name for name in (
+    "0228-timezone-default-declaration.patch",
+    "0229-timezone-default-implementation.patch",
+    "0230-blink-default-timezone-api.patch",
+    "0231-blink-default-timezone-bridge.patch",
+    "0232-renderer-launch-timezone-install.patch",
+))
 CONTROLLER = "third_party/blink/renderer/core/timezone/timezone_controller"
 RENDERER = "content/renderer/render_thread_impl.cc"
 BRIDGE = "third_party/blink/renderer/controller/blink_initializer.cc"
@@ -47,9 +53,11 @@ def sources(tmp_path_factory):
     for number in (5, 7, 19):
         run_patch(directory, next((ROOT / "patches").glob(f"{number:04d}-*.patch")))
     before = {name: (directory / name).read_bytes() for name in EVIDENCE["sources"]}
-    run_patch(directory, ROOT / PATCH)
+    for patch in PATCHES:
+        run_patch(directory, ROOT / patch)
     result = {name: (directory / name).read_text() for name in before}
-    run_patch(directory, ROOT / PATCH, reverse=True)
+    for patch in reversed(PATCHES):
+        run_patch(directory, ROOT / patch, reverse=True)
     assert {name: (directory / name).read_bytes() for name in before} == before
     return result
 
@@ -100,19 +108,49 @@ def test_native_notification_and_devtools_paths_are_preserved(sources):
     assert "SetDefaultTimeZone(effective_id);" in monitor
 
 
-def test_manifest_appends_226_without_changing_png_addition():
+def test_manifest_appends_230_without_changing_png_addition():
     data = json.loads((ROOT / "build/patch-additions-windows155.json").read_text())
     series = [line for line in (ROOT / "patches/series").read_text().splitlines()
               if line.strip() and not line.startswith("#")]
     assert len(series) == 224
-    assert len(series) + len(data["patches"]) == 226
+    assert len(series) + len(data["patches"]) == 230
     assert data["patches"][0] == {
         "path": "patches/chromium155-windows/0227-opaque-png-export-consistency.patch",
         "sha256": "4c048a50930c3541a3bb9e4442ad7f18e94c04ebccf86c0cfbfc286b15a70751",
     }
-    assert data["patches"][1] == {
-        "path": PATCH, "sha256": hashlib.sha256((ROOT / PATCH).read_bytes()).hexdigest(),
-    }
+    assert data["patches"][1:] == [
+        {"path": patch, "sha256": hashlib.sha256((ROOT / patch).read_bytes()).hexdigest()}
+        for patch in PATCHES
+    ]
+
+
+def test_single_file_split_preserves_original_diff_bytes_and_order():
+    split = EVIDENCE["patch_split"]
+    assert [entry["path"] for entry in split["patches"]] == list(PATCHES)
+    assert [entry["target"] for entry in split["patches"]] == [
+        CONTROLLER + ".h", CONTROLLER + ".cc", PUBLIC, BRIDGE, RENDERER,
+    ]
+    sections = {}
+    for entry in split["patches"]:
+        raw = (ROOT / entry["path"]).read_bytes()
+        assert hashlib.sha256(raw).hexdigest() == entry["sha256"]
+        assert raw.count(b"diff --git ") == 1
+        target = entry["target"]
+        assert raw.startswith(f"diff --git a/{target} b/{target}\n".encode())
+        sections[target] = raw
+    original = b"".join(sections[target] for target in split["original_target_order"])
+    assert split["original_sha256"] == "354c8c86228f6f937e8f61a0a7305d24a78a17c29be09c4c603b56cf787009e4"
+    assert hashlib.sha256(original).hexdigest() == split["original_sha256"]
+
+
+def test_timezone_split_passes_unmodified_patch_body_linter(tmp_path):
+    from tools import check_patches
+
+    for patch in PATCHES:
+        shutil.copy2(ROOT / patch, tmp_path / Path(patch).name)
+    report = check_patches.Report()
+    check_patches.check_bodies(report, tmp_path, verbose=True)
+    assert not report.failures
 
 
 def icu_flags():
