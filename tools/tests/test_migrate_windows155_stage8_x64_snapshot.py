@@ -57,10 +57,16 @@ class Fixture:
         self.old_names = [f"patches/{n:04d}-fixture.patch" for n in range(1, 226)]
         self.names = self.old_names + list(migration.ADDITIONS)
         self.raw = []
+        self.sources = ("source.cc", *(f"timezone-{i}.cc" for i in range(1, 5)))
         previous = "v0"
         for number, name in enumerate(self.names, 1):
-            data = patch("source.cc", previous, f"v{number}")
-            previous = f"v{number}"
+            if number <= 226:
+                data = patch("source.cc", previous, f"v{number}")
+                previous = f"v{number}"
+            else:
+                source = self.sources[number - 226]
+                data = patch(source, "base", "timezone")
+                put(self.src, source, "base\r\n")
             self.raw.append((name, data))
             put(self.target, name, data)
             if number <= 225:
@@ -105,12 +111,11 @@ class Fixture:
         self.selected["selection"]["additions"] = {
             "schema_version": 1, "kind": "windows155-compiled-png-recovery",
             "manifest": {"path": migration.MANIFEST, "sha256": migration.selection.WINDOWS155_ADDITIONS_SHA256},
-            "patches": [{"path": migration.PATCH, "sha256": migration.arp._sha(self.raw[-1][1])}],
+            "patches": [{"path": name, "sha256": migration.arp._sha(data)} for name, data in self.raw[225:]],
         }
         put(self.donor, "patches/series", (self.target / "patches/series").read_bytes())
         monkeypatch.setattr(migration, "OLD_IDENTITY", migration.arp._sha(migration.arp._json(old_selected)))
-        monkeypatch.setattr(migration, "PATCH_SHA256", migration.arp._sha(self.raw[-1][1]))
-        monkeypatch.setattr(migration, "SOURCES", ("source.cc",))
+        monkeypatch.setattr(migration, "SOURCES", self.sources)
         monkeypatch.setattr(migration.selection, "select", lambda repo, *a, **kw:
             (copy.deepcopy(old_selected), self.raw[:225]) if repo == self.donor
             else (copy.deepcopy(self.selected), self.raw))
@@ -164,9 +169,10 @@ def test_full_migration_preserves_ninja_receipt_version_and_advances_markers(tmp
     immutable = {n: snapshot(fx.src)[n] for n in (migration.upstream.MARKER, migration.SOURCE_VERSION)}
     before = (fx.src / "source.cc").stat().st_mtime_ns
     report = fx.run()
-    assert report["changed_files"] == ["source.cc"]
+    assert report["changed_files"] == sorted(fx.sources)
+    assert report["changed_patches"] == list(migration.ADDITIONS)
     assert report["prepareSourceKey"] == report["key"] == fx.key
-    assert report["old_patch_count"] == 225 and report["patch_count"] == 226
+    assert report["old_patch_count"] == 225 and report["patch_count"] == 230
     assert (fx.src / "source.cc").read_bytes() == b"v226\r\n"
     assert (fx.src / "source.cc").stat().st_mtime_ns >= before + 1_000_000_000
     assert snapshot(fx.src / "out") == ninja
@@ -262,7 +268,7 @@ def test_source_race_before_publication_preserves_blocker(tmp_path, monkeypatch)
 
     def race(stage, patches, git_program, names):
         result = original(stage, patches, git_program, names)
-        if len(patches) == 226:
+        if len(patches) == 230:
             put(fx.src, "source.cc", "concurrent edit\n")
         return result
 
@@ -329,28 +335,27 @@ def test_full_stack_donor_failure_is_not_replaced_with_append_only_check(tmp_pat
     assert (fx.work / migration.BLOCKER).is_dir()
 
 
-def test_real_225_prefix_reconstruction_does_not_execute_donor_selector(tmp_path, monkeypatch):
-    donor, target = tmp_path / "donor", tmp_path / "target"
-    for root in (donor, target):
-        root.mkdir()
-        with tarfile.open(fileobj=io.BytesIO(git("-C", ROOT, "archive", migration.DONOR_SHA))) as archive:
-            archive.extractall(root, filter="data")
-    expected, prefix = migration.selection.select(donor, "windows")
-    addition = b"".join(patch(name, "before", "after") for name in migration.SOURCES)
-    put(target, migration.PATCH, addition)
-    digest = migration.arp._sha(addition)
-    monkeypatch.setattr(migration, "PATCH_SHA256", digest)
-    manifest = json.loads((target / migration.MANIFEST).read_bytes())
-    manifest["patches"].append({"path": migration.PATCH, "sha256": digest})
-    payload = migration.arp._json(manifest)
-    put(target, migration.MANIFEST, payload)
-    monkeypatch.setattr(migration.selection, "WINDOWS155_ADDITIONS_SHA256", migration.arp._sha(payload))
-    selected, raw = migration.selection.select(target, "windows")
-    assert migration._donor_selection(donor, target, selected, raw) == (expected, prefix)
-    assert len(prefix) == 225 and len(raw) == 226
+def donor_archive(root):
+    root.mkdir()
+    with tarfile.open(fileobj=io.BytesIO(git("-C", ROOT, "archive", migration.DONOR_SHA))) as archive:
+        archive.extractall(root, filter="data")
+    return root
+
+
+def test_real_225_prefix_reconstruction_does_not_execute_donor_selector(tmp_path):
+    donor = donor_archive(tmp_path / "donor")
+    selected, raw = migration.selection.select(ROOT, "windows")
+    old, prefix = migration._donor_selection(donor, ROOT, selected, raw)
+    assert len(prefix) == 225 and len(raw) == 230
+    assert migration.arp._sha(migration.arp._json(old)) == migration.OLD_IDENTITY
+    assert raw[225:] == [(name, (ROOT / name).read_bytes()) for name in migration.ADDITIONS]
+    assert old["patches"] == selected["patches"][:225]
+    assert old["patches"][-1]["path"] == "patches/chromium155-windows/0227-opaque-png-export-consistency.patch"
     put(donor, prefix[0][0], b"forged")
     with pytest.raises(RuntimeError, match="donor patch bytes changed"):
-        migration._donor_selection(donor, target, selected, raw)
+        migration._donor_selection(donor, ROOT, selected, raw)
+
+
 @pytest.mark.parametrize("relative", ["out/Default/obj/cache.obj", "chrome/build/pgo_profiles/native.profdata"])
 def test_object_and_pgo_races_refuse_publication(tmp_path, monkeypatch, relative):
     fx = Fixture(tmp_path, monkeypatch)
@@ -374,50 +379,35 @@ def test_expanded_target_inventory_retains_exact_donor_completion(tmp_path, monk
     import validate_windows155_stage8_checkpoint as validator
     fx = Fixture(tmp_path, monkeypatch)
     old_completion = (fx.src / migration.arp.MARKER).read_bytes()
-    donor_selected = migration.selection.select(fx.donor, "windows")[0]
-    sources = ("source.cc", "previously-unpatched.cc")
-    data = fx.raw[-1][1] + patch(sources[1], "base", "timezone")
-    fx.raw[-1] = (migration.PATCH, data)
-    put(fx.target, migration.PATCH, data)
-    put(fx.src, sources[1], "base\r\n")
-    fx.selected["patches"][-1]["sha256"] = migration.arp._sha(data)
-    fx.selected["selection"]["additions"]["patches"][-1]["sha256"] = migration.arp._sha(data)
-    monkeypatch.setattr(migration, "SOURCES", sources)
-    fx.key = migration._key(fx.target, fx.selected, fx.raw)
     result = fx.run()
     assert migration.arp._json(result["previous_completion"]) == old_completion
+    assert set(result["previous_completion"]["outputs"]) == {"source.cc", "lite.txt"}
+    assert all(name in result["source_proof"]["donor_outputs"] for name in fx.sources)
     receipt = tmp_path / "migration.json"
     receipt.write_bytes((fx.src / migration.RECEIPT).read_bytes())
-    monkeypatch.setattr(migration, "_donor_selection", lambda *args: (donor_selected, fx.raw[:225]))
     assert validator.verify_prepared(fx.work.parent, fx.donor, fx.target,
                                      migration.TARGET_BASE_SHA, receipt)["status"] == "verified"
-    assert (fx.src / sources[1]).read_bytes() == b"timezone\r\n"
+    assert all((fx.src / name).read_bytes() == b"timezone\r\n" for name in fx.sources[1:])
+
+
 @pytest.mark.parametrize("mutation", [None, "selector", "gn", "root-patch", "extra"])
 def test_repository_gate_allows_only_exact_selector_digest_replacement(tmp_path, monkeypatch, mutation):
     donor, target = tmp_path / "donor", tmp_path / "target"
-    for root in (donor, target):
+    for root, revision in ((donor, migration.DONOR_SHA), (target, "HEAD")):
         git("clone", "--quiet", "--no-hardlinks", "--no-checkout", ROOT, root)
-        git("-C", root, "checkout", "--quiet", "--detach", migration.DONOR_SHA)
-    actual_tree = migration.safe._tree
-    head, tree = actual_tree(shutil.which("git"), target)
-    old_manifest = (target / migration.MANIFEST).read_bytes()
-    manifest = json.loads(old_manifest)
-    addition = b"".join(patch(name, "before", "after") for name in migration.SOURCES)
-    manifest["patches"].append({"path": migration.PATCH, "sha256": migration.arp._sha(addition)})
-    payload = migration.arp._json(manifest)
-    selector = (target / "tools/patch_selection.py").read_bytes().replace(
-        migration.arp._sha(old_manifest).encode(), migration.arp._sha(payload).encode())
-    entries = {migration.PATCH: addition, migration.MANIFEST: payload, "tools/patch_selection.py": selector}
+        git("-C", root, "checkout", "--quiet", "--detach", revision)
+    for name in (*migration.ADDITIONS, migration.MANIFEST, "tools/patch_selection.py"):
+        put(target, name, (ROOT / name).read_bytes())
     if mutation == "selector":
-        entries["tools/patch_selection.py"] += b"\n# unrelated change\n"
+        path = target / "tools/patch_selection.py"
+        path.write_bytes(path.read_bytes() + b"\n# unrelated change\n")
     elif mutation in ("gn", "root-patch"):
         name = "build/args.windows.gn" if mutation == "gn" else "patches/series"
-        entries[name] = (target / name).read_bytes() + b"\n# unreviewed change\n"
-    for name, raw in entries.items():
-        put(target, name, raw)
-        tree[name] = ("100644", "blob", hashlib.sha1(f"blob {len(raw)}\0".encode() + raw).hexdigest())
-    monkeypatch.setattr(migration.safe, "_tree", lambda program, root, expected=None:
-        (head, tree) if root == target else actual_tree(program, root, expected))
+        path = target / name
+        path.write_bytes(path.read_bytes() + b"\n# unreviewed change\n")
+    git("-C", target, "add", ".")
+    git("-C", target, "-c", "user.name=Recovery test", "-c", "user.email=recovery@example.invalid",
+        "commit", "--quiet", "--allow-empty", "-m", "Integrated five-patch recovery inputs")
     monkeypatch.setattr(migration.safe, "WINDOWS", True)
     if mutation == "extra":
         put(target, "patches/untracked.patch", b"unreviewed")
@@ -426,4 +416,125 @@ def test_repository_gate_allows_only_exact_selector_digest_replacement(tmp_path,
             migration._repository_inputs(shutil.which("git"), donor, target)
     else:
         old, new = migration._repository_inputs(shutil.which("git"), donor, target)
-        assert old[0] == new[0] == migration.DONOR_SHA
+        assert old[0] == migration.DONOR_SHA
+        assert new[0] == git("-C", target, "rev-parse", "HEAD").decode().strip()
+        selected, raw = migration.selection.select(target, "windows")
+        assert len(migration._donor_selection(donor, target, selected, raw)[1]) == 225
+
+@pytest.mark.parametrize("index", range(5))
+def test_each_append_failure_keeps_entire_live_batch_unpublished(tmp_path, monkeypatch, index):
+    fx = Fixture(tmp_path, monkeypatch)
+    apply = migration._apply
+
+    def fail(stage, patches, program, reverse=False):
+        if [name for name, _, _ in patches] == list(migration.ADDITIONS) and not reverse:
+            apply(stage, patches[:index], program)
+            raise RuntimeError("injected batch append failure")
+        return apply(stage, patches, program, reverse)
+
+    monkeypatch.setattr(migration, "_apply", fail)
+    before = snapshot(fx.src)
+    with pytest.raises(RuntimeError, match="batch append failure"):
+        fx.run()
+    assert snapshot(fx.src) == before
+    assert (fx.work / migration.BLOCKER).is_dir()
+
+
+@pytest.mark.parametrize("index", range(5))
+def test_partial_publication_never_commits_batch_receipts_or_readiness(tmp_path, monkeypatch, index):
+    fx = Fixture(tmp_path, monkeypatch)
+    write = migration.safe._write
+    before = snapshot(fx.src)
+
+    def fail(path, data, **kwargs):
+        if path == fx.src / sorted(fx.sources)[index]:
+            raise OSError("injected batch publication failure")
+        return write(path, data, **kwargs)
+
+    monkeypatch.setattr(migration.safe, "_write", fail)
+    with pytest.raises(OSError, match="batch publication"):
+        fx.run()
+    after = snapshot(fx.src)
+    for name in (migration.READY, ".chromix-patches", ".chromix-patch-selection",
+                 migration.arp.MARKER, migration.PRIOR_RECEIPT):
+        assert after[name] == before[name]
+    assert not (fx.src / migration.RECEIPT).exists()
+    assert (fx.work / migration.BLOCKER).is_dir()
+    with pytest.raises(RuntimeError, match="unfinished transaction"):
+        fx.run()
+
+
+@pytest.mark.parametrize("mutation", ["missing", "duplicate", "order", "prefix-order", "prefix-identity"])
+def test_integrated_selection_rejects_incomplete_or_reordered_batch(tmp_path, mutation):
+    donor = donor_archive(tmp_path / "donor")
+    selected, raw = migration.selection.select(ROOT, "windows")
+    if mutation == "missing":
+        raw.pop()
+    elif mutation == "duplicate":
+        raw[-1] = raw[-2]
+    elif mutation == "order":
+        raw[-1], raw[-2] = raw[-2], raw[-1]
+    elif mutation == "prefix-order":
+        raw[0], raw[1] = raw[1], raw[0]
+        selected["patches"][0], selected["patches"][1] = selected["patches"][1], selected["patches"][0]
+    else:
+        selected["patches"][0]["sha256"] = "0" * 64
+    with pytest.raises(RuntimeError, match="230 target patches|historical 225-patch"):
+        migration._donor_selection(donor, ROOT, selected, raw)
+
+
+@pytest.mark.parametrize("index", range(5))
+def test_integrated_patch_bytes_cannot_change_even_with_preserved_selection(tmp_path, index):
+    donor = donor_archive(tmp_path / "donor")
+    target = tmp_path / "target"
+    for name in (*migration.ADDITIONS, migration.MANIFEST, "patches/series"):
+        put(target, name, (ROOT / name).read_bytes())
+    selected, raw = migration.selection.select(ROOT, "windows")
+    name = migration.ADDITIONS[index]
+    put(target, name, (target / name).read_bytes() + b"\n")
+    with pytest.raises(RuntimeError, match="timezone patch hash mismatch"):
+        migration._donor_selection(donor, target, selected, raw)
+
+
+def test_real_five_patch_batch_roundtrips_exact_155_source(tmp_path):
+    import gzip
+    evidence = json.loads(gzip.decompress((Path(__file__).with_name("fixtures") /
+        "windows155_timezone_sources.json.gz").read_bytes()))
+    stage = tmp_path / "src"
+    for name, entry in evidence["sources"].items():
+        raw = entry["text"].encode()
+        assert migration.arp._sha(raw) == entry["sha256"]
+        put(stage, name, raw)
+    program = shutil.which("git")
+    for number in (5, 7, 19):
+        path = next((ROOT / "patches").glob(f"{number:04d}-*.patch"))
+        data, entries = migration.arp.transform_patch(path.read_bytes(), set(), [])
+        migration._apply(stage, [(path.name, data, entries)], program)
+    before = migration._bytes(stage, migration.SOURCES)
+    patches = []
+    for name, digest, source in migration.PATCH_CONTRACT:
+        raw = (ROOT / name).read_bytes()
+        assert migration.arp._sha(raw) == digest
+        data, entries = migration.arp.transform_patch(raw, set(), [])
+        assert entries == [(source, "modify", None)]
+        patches.append((name, data, entries))
+    migration._apply(stage, patches, program)
+    assert all(data != before[name] for name, data in migration._bytes(stage, migration.SOURCES).items())
+    migration._roundtrip(stage, patches, program, set(migration.SOURCES))
+    migration._apply(stage, patches, program, reverse=True)
+    assert migration._bytes(stage, migration.SOURCES) == before
+
+@pytest.mark.parametrize("field", ["series", "last-patch", "manifest", "additions"])
+def test_integrated_target_identity_cannot_drift_from_batch(tmp_path, field):
+    donor = donor_archive(tmp_path / "donor")
+    selected, raw = migration.selection.select(ROOT, "windows")
+    if field == "series":
+        selected["series_sha256"] = "0" * 64
+    elif field == "last-patch":
+        selected["patches"][-1]["sha256"] = "0" * 64
+    elif field == "manifest":
+        selected["selection"]["additions"]["manifest"]["sha256"] = "0" * 64
+    else:
+        selected["selection"]["additions"]["patches"].pop()
+    with pytest.raises(RuntimeError, match="exact five-patch append identity"):
+        migration._donor_selection(donor, ROOT, selected, raw)

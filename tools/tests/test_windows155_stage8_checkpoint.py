@@ -149,7 +149,7 @@ def test_prepared_stage8_verifies_current_target_not_historical_prepare_sha(migr
     fx, report, path, migration = migrated
     before = {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in fx.src.rglob("*") if p.is_file()}
     verified = checkpoint.verify_prepared(fx.work.parent, fx.donor, fx.target, migration.TARGET_BASE_SHA, path)
-    assert verified["patch_count"] == 226
+    assert verified["patch_count"] == 230
     assert verified["donor_run_id"] == 38355909882
     assert verified["prepareSourceKey"] == report["key"]
     assert {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in before} == before

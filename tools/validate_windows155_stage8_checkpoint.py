@@ -29,7 +29,7 @@ STAGE = 8
 VERSION = "155.0.8059.39"
 CORE = "ffeb45a2bb88bc56a1dfed31410aeb10e9efcd5a"
 WINDOWS = "989b4382364baaddb8b3180e1eb1030ca96a7273"
-PROFILE = "windows155-x64-stage8-225-to-226"
+PROFILE = "windows155-x64-stage8-225-to-230"
 RECEIPT = ".chromix-windows155-x64-stage8-migration.json"
 PRIOR_RECEIPT = ".chromix-windows155-x64-migration.json"
 PREFIX = "win-x64-tree-s8-attempt-1-part"
@@ -258,8 +258,8 @@ def verify_prepared(work_dir: Path, donor_repo: Path, repo: Path,
                    "operation": "windows155-x64-snapshot-migration", "platform": "windows", "arch": "x64",
                    "version": VERSION, "previous_sha": DONOR_SHA, "target_sha": target_sha,
                    "donor_run_id": RUN_ID, "donor_job_id": JOB_ID, "donor_attempt": ATTEMPT,
-                   "old_patch_count": 225, "patch_count": 226,
-                   "changed_patches": [migration.PATCH], "changed_files": sorted(migration.SOURCES)},
+                   "old_patch_count": 225, "patch_count": 230,
+                   "changed_patches": list(migration.ADDITIONS), "changed_files": sorted(migration.SOURCES)},
           "migration receipt identity")
     core = safe._safe(work / "tooling/ungoogled-chromium", directory=True)
     tooling = safe._safe(work / "tooling/ungoogled-chromium-windows", directory=True)
@@ -370,7 +370,7 @@ def verify_prepared(work_dir: Path, donor_repo: Path, repo: Path,
             "platform": "windows", "arch": "x64", "version": VERSION,
             "previous_sha": DONOR_SHA, "target_sha": target_sha,
             "donor_run_id": RUN_ID, "donor_job_id": JOB_ID, "donor_attempt": ATTEMPT,
-            "previous_key": previous_key, "prepareSourceKey": key, "patch_count": 226,
+            "previous_key": previous_key, "prepareSourceKey": key, "patch_count": 230,
             "source_version": patch_selection.source_version(src),
             "migration_receipt_sha256": hashlib.sha256(payload).hexdigest(),
             "upstream_receipt_sha256": upstream_hash,

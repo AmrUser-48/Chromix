@@ -126,3 +126,16 @@ def test_new_checkpoint_selector_is_explicit_and_legacy_default_remains():
     assert "tools\\validate_windows155_stage8_checkpoint.py" in text
     assert "tools\\validate_windows155_stage7_checkpoint.py" in text
     assert "-MigrationCheckpoint stage8" in WORKFLOW.read_text()
+
+
+def test_stage8_workflow_uses_single_atomic_five_patch_migration():
+    import migrate_windows155_stage8_x64_snapshot as migration
+    import validate_windows155_stage8_checkpoint as validator
+    assert migration.PROFILE == validator.PROFILE == "windows155-x64-stage8-225-to-230"
+    assert len(migration.PATCH_CONTRACT) == len(set(migration.SOURCES)) == 5
+    commands = [step.get("run", "") for step in flow()["jobs"]["build-8"]["steps"]]
+    migrations = [command for command in commands if "migrate_windows155_stage8_x64_snapshot.py" in command]
+    assert len(migrations) == 1
+    assert "--donor-sha " + migration.DONOR_SHA in migrations[0]
+    assert "--output" in migrations[0]
+    assert all("git apply" not in command and "--patch" not in command for command in commands)

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""One-shot 225-to-226 migration of the pinned Windows 155 x64 checkpoint.
+"""One-shot 225-to-230 migration of the pinned Windows 155 x64 checkpoint.
 
 Authenticate run 38355909882/job 115158636797 and extract it separately. Stop all
 build processes before invoking this trusted target helper. Donor code never runs.
@@ -32,7 +32,7 @@ TARGET_BASE_SHA = DONOR_SHA
 VERSION = "155.0.8059.39"
 CORE = "ffeb45a2bb88bc56a1dfed31410aeb10e9efcd5a"
 WINDOWS = "989b4382364baaddb8b3180e1eb1030ca96a7273"
-PROFILE = "windows155-x64-stage8-225-to-226"
+PROFILE = "windows155-x64-stage8-225-to-230"
 TRUSTED_REPO = Path(__file__).resolve().parents[1]
 BLOCKER = ".chromix-upstream-restore-windows155-x64-migration"
 RECEIPT = ".chromix-windows155-x64-stage8-migration.json"
@@ -41,19 +41,29 @@ PRIOR_RECEIPT_SHA256 = "658d063c79f261eb630092ee335b603b678f15e24cc4a9acfad1bc24
 DONOR_SOURCE_RECEIPT_SHA256 = "90794fba0c5d9ad3bd37e11d3a2715151d2022bfaa81cd814b828c6bcecb4760"
 READY = ".chromix-source-ready"
 SOURCE_VERSION = "chrome/VERSION"
-PATCH = "patches/chromium155-windows/0228-synchronous-launch-timezone.patch"
-SOURCES = (
-    "content/renderer/render_thread_impl.cc",
-    "third_party/blink/public/web/blink.h",
-    "third_party/blink/renderer/controller/blink_initializer.cc",
-    "third_party/blink/renderer/core/timezone/timezone_controller.h",
-    "third_party/blink/renderer/core/timezone/timezone_controller.cc",
+PATCH_CONTRACT = (
+    ("patches/chromium155-windows/0228-timezone-default-declaration.patch",
+     "c750f8888d986d6fbbaea16f3ca37d1543625a1281f5bd1562563d496f0daf7d",
+     "third_party/blink/renderer/core/timezone/timezone_controller.h"),
+    ("patches/chromium155-windows/0229-timezone-default-implementation.patch",
+     "3d6dd6aa4d02ff005886f27e3312c083d5385511d3303b0184a520ca3e3f3006",
+     "third_party/blink/renderer/core/timezone/timezone_controller.cc"),
+    ("patches/chromium155-windows/0230-blink-default-timezone-api.patch",
+     "0495c11554fc2dd6b2e1b0e2d058ee2e9995ba6f8ccec64c149b6fe62ebcbd43",
+     "third_party/blink/public/web/blink.h"),
+    ("patches/chromium155-windows/0231-blink-default-timezone-bridge.patch",
+     "00274260ba64724d5cae1222ff981dd45c177bad07a9ad7fbd675c7b08426836",
+     "third_party/blink/renderer/controller/blink_initializer.cc"),
+    ("patches/chromium155-windows/0232-renderer-launch-timezone-install.patch",
+     "345ef39c9cc6d987f59c44f3f4a46099391d6c629058f10c1151e02a654796a7",
+     "content/renderer/render_thread_impl.cc"),
 )
-ADDITIONS = (PATCH,)
+ADDITIONS = tuple(name for name, _, _ in PATCH_CONTRACT)
+SOURCES = tuple(source for _, _, source in PATCH_CONTRACT)
 MANIFEST = "build/patch-additions-windows155.json"
+MANIFEST_SHA256 = "5e7983a05e07f8f3ec10806fa06f180fb5ef20490568d8d83ce1b1e3db5fa104"
 OLD_SELECTOR = "4c2392a036f0e3c754ed887b41e67e624d80350f53d0059f7308205d05ca5185"
 OLD_IDENTITY = "0474128cc29677a220c1138f6ea45e77b798a81e657a14c49fcdb242fe014725"
-PATCH_SHA256 = "354c8c86228f6f937e8f61a0a7305d24a78a17c29be09c4c603b56cf787009e4"
 ORIGINAL_ARGS_SHA256 = "3a389e4125781ebf668790df4d58d1dc11d384518fe0fd9696e1c35417d05d3a"
 # These host entry points do not supply patch, GN, or preparation-layer bytes.
 HOST_CHANGES = frozenset({"build/windows/ci-stage.ps1"})
@@ -100,20 +110,21 @@ def _repository_inputs(git, donor, target):
             metadata, name = record.split(b"\t", 1)
             baseline[name.decode()] = tuple(metadata.decode().split())
     _require(all(tree.get(n) == baseline.get(n) for n in set(tree) | set(baseline)
-                 if _protected(n) and n not in {PATCH, MANIFEST, "tools/patch_selection.py"}), "target preparation inputs differ from the pinned target ref")
+                 if _protected(n) and n not in {*ADDITIONS, MANIFEST, "tools/patch_selection.py"}), "target preparation inputs differ from the pinned target ref")
     old_state, new_state = safe._tracked(donor, old_tree), safe._tracked(target, tree)
     for root, entries in ((donor, old_tree), (target, tree)):
         for directory in ("build", "assets", "patches"):
             _require(safe._walk_files(root, directory) ==
                      {n for n in entries if n.startswith(directory + "/")},
                      "extra/missing preparation input: " + directory)
-    allowed = {PATCH, MANIFEST, "tools/patch_selection.py"}
+    allowed = {*ADDITIONS, MANIFEST, "tools/patch_selection.py"}
     for name in set(old_tree) | set(tree):
         if _protected(name) and name not in allowed:
             _require(old_tree.get(name) == tree.get(name),
                      "donor preparation input changed outside fixed profile: " + name)
-    _require(PATCH not in old_tree and tree.get(PATCH, ())[:2] == ("100644", "blob"),
-             "timezone input must be an addition")
+    for name in ADDITIONS:
+        _require(name not in old_tree and tree.get(name, ())[:2] == ("100644", "blob"),
+                 "timezone input must be an addition: " + name)
     old_selector = safe._file(donor, "tools/patch_selection.py").read_bytes()
     new_selector = safe._file(target, "tools/patch_selection.py").read_bytes()
     _require(arp._sha(old_selector) == OLD_SELECTOR, "donor selector hash mismatch")
@@ -127,20 +138,26 @@ def _repository_inputs(git, donor, target):
 
 def _donor_selection(donor, target, selected, raw):
     """Reconstruct the pinned 225-patch donor using data, never donor Python."""
-    addition = safe._file(target, PATCH).read_bytes()
-    _require(arp._sha(addition) == PATCH_SHA256, "timezone patch hash mismatch")
-    _require(arp.transform_patch(addition, set(), [])[1] == [(name, "modify", None) for name in SOURCES],
-             "timezone addition must only modify its five reviewed source files")
-    _require(len(raw) == 226 and raw[-1] == (PATCH, addition), "expected exactly 226 target patches")
+    additions = []
+    for name, digest, source in PATCH_CONTRACT:
+        data = safe._file(target, name).read_bytes()
+        _require(arp._sha(data) == digest, "timezone patch hash mismatch: " + name)
+        _require(arp.transform_patch(data, set(), [])[1] == [(source, "modify", None)],
+                 "timezone patch must modify exactly its reviewed file: " + name)
+        additions.append((name, data))
+    _require(len(raw) == 230 and raw[225:] == additions,
+             "expected exactly 230 target patches with the five ordered timezone additions")
     series = safe._file(donor, "patches/series").read_bytes()
     _require(series == safe._file(target, "patches/series").read_bytes(), "root series changed")
     manifest = json.loads(safe._file(donor, MANIFEST).read_bytes())
-    target_manifest = json.loads(safe._file(target, MANIFEST).read_bytes())
-    entry = {"path": PATCH, "sha256": PATCH_SHA256}
-    _require(target_manifest == dict(manifest, patches=[*manifest["patches"], entry]),
-             "manifest must only append the exact timezone patch")
+    target_manifest_bytes = safe._file(target, MANIFEST).read_bytes()
+    _require(arp._sha(target_manifest_bytes) == MANIFEST_SHA256, "timezone manifest hash mismatch")
+    target_manifest = json.loads(target_manifest_bytes)
+    entries = [{"path": name, "sha256": digest} for name, digest, _ in PATCH_CONTRACT]
+    _require(target_manifest == dict(manifest, patches=[*manifest["patches"], *entries]),
+             "manifest must only append the five exact timezone patches")
     prefix = [(name, safe._file(donor, name).read_bytes()) for name, _ in raw[:225]]
-    _require(raw == [*prefix, (PATCH, addition)], "donor patch bytes changed")
+    _require(raw == [*prefix, *additions], "donor patch bytes changed")
     old = copy.deepcopy(selected)
     old["patches"] = old["patches"][:225]
     old["selection"]["additions"] = {
@@ -161,6 +178,15 @@ def _donor_selection(donor, target, selected, raw):
     old["series_sha256"] = arp._sha(effective)
     _require(arp._sha(arp._json(old)) == OLD_IDENTITY,
              "expected exact historical 225-patch identity")
+    expected = copy.deepcopy(old)
+    expected["patches"] = [*old["patches"], *entries]
+    expected["series_sha256"] = arp._sha(effective + b"".join((name + "\n").encode() for name in ADDITIONS))
+    expected["selection"]["additions"] = {
+        "schema_version": target_manifest["schema_version"], "kind": target_manifest["kind"],
+        "manifest": {"path": MANIFEST, "sha256": MANIFEST_SHA256},
+        "patches": target_manifest["patches"],
+    }
+    _require(selected == expected, "target selection must be the exact five-patch append identity")
     return old, prefix
 
 
@@ -473,7 +499,7 @@ def migrate(work_dir, donor_repo, target_repo, donor_sha, *, report_stream=None)
                              "previous_selector_sha256": OLD_SELECTOR, "selector_sha256": arp._sha(safe._file(target, "tools/patch_selection.py").read_bytes())},
             "gn_args_sha256": immutable["out/Default/args.gn"][0],
             "previous_key": old_key, "key": key, "prepareSourceKey": key,
-            "old_patch_count": 225, "patch_count": 226, "changed_patches": [n for n, _ in raw[225:]],
+            "old_patch_count": 225, "patch_count": 230, "changed_patches": [n for n, _ in raw[225:]],
             "changed_files": sorted(changed), "source_changes": changes,
             "previous_completion": old_completion, "identity": current,
             "prior_migration_receipt_sha256": arp._sha(arp._json(prior_receipt)),
