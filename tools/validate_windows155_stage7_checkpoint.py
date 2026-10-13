@@ -12,8 +12,10 @@ import shutil
 import subprocess
 
 if __package__:
+    from .restore_upstream_cache import parse_gn_assignments
     from .validate_windows_snapshot import Client
 else:
+    from restore_upstream_cache import parse_gn_assignments
     from validate_windows_snapshot import Client
 
 REPOSITORY = "xiaozhou26/Chromix"
@@ -36,8 +38,10 @@ ARTIFACTS = (
     {"id": 11785560392, "name": PREFIX + "2", "size_in_bytes": 3398865370,
      "expired": False, "digest": "sha256:0384eb4b99b3224b8ea895ac937be09a661a905e21ee22333b08ca1aa9e6c386"},
 )
+# The pinned donor initializes this marker for ARM64, not unmarked x64 trees.
+OPTIONAL_MARKERS = (".chromix-target-arch",)
 MARKERS = (
-    ".chromix-target-arch", "src/chrome/VERSION",
+    "src/chrome/VERSION",
     "src/.chromix-upstream-restored.json", "src/.chromix-restored-patches.json",
     "src/.chromix-source-ready", "src/.chromix-source-unpacked", "src/out/Default/args.gn",
 )
@@ -110,10 +114,12 @@ def validate_metadata(client, repository: str = REPOSITORY) -> dict:
 def validate_snapshot_files(files: dict[str, bytes]) -> dict:
     require(set(MARKERS) <= files.keys(), "snapshot markers missing")
     try:
-        text = {name: files[name].decode("utf-8-sig").strip() for name in MARKERS}
+        text = {name: files[name].decode("utf-8-sig").strip()
+                for name in (*MARKERS, *OPTIONAL_MARKERS) if name in files}
     except UnicodeDecodeError:
         raise ValueError("snapshot marker is not UTF-8") from None
-    require(text[".chromix-target-arch"] == "x64", "snapshot architecture mismatch")
+    require(".chromix-target-arch" not in text or text[".chromix-target-arch"] == "x64",
+            "snapshot architecture mismatch")
     version = text["src/chrome/VERSION"]
     fields = re.findall(r"(?m)^(MAJOR|MINOR|BUILD|PATCH)=(\d+)\s*$", version)
     require(len(fields) == 4 and len(dict(fields)) == 4
@@ -121,7 +127,7 @@ def validate_snapshot_files(files: dict[str, bytes]) -> dict:
             "snapshot Chromium VERSION mismatch")
     receipt = json.loads(text["src/.chromix-upstream-restored.json"])
     exact(receipt, {"status": "restored", "platform": "windows", "arch": "x64"}, "upstream receipt")
-    exact(receipt.get("identity"), {"arch": "x64"}, "upstream receipt identity")
+    exact(receipt.get("identity"), {"platform": "windows", "arch": "x64"}, "upstream receipt identity")
     patches = json.loads(text["src/.chromix-restored-patches.json"])
     exact(patches, {"schema_version": 1}, "patch receipt schema")
     require(isinstance(patches.get("identity_sha256"), str)
@@ -139,10 +145,12 @@ def validate_snapshot_files(files: dict[str, bytes]) -> dict:
                          text["src/.chromix-source-ready"]) is not None
             and text["src/.chromix-source-unpacked"] == VERSION, "snapshot ready/version markers mismatch")
     args = text["src/out/Default/args.gn"]
-    for key, value in (("target_cpu", "x64"), ("target_os", "win")):
-        require(len(re.findall(rf"(?m)^\s*{key}\s*=", args)) == 1
-                and re.search(rf'(?m)^\s*{key}\s*=\s*"{value}"\s*(?:#.*)?$', args),
-                "snapshot GN architecture mismatch")
+    keys = re.findall(r"(?m)^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=", args)
+    assignments = parse_gn_assignments(args)
+    require(len(keys) == len(set(keys)) and assignments.get("target_cpu") == '"x64"'
+            and assignments.get("target_os") == '"win"'
+            and assignments.get("v8_target_cpu", '"x64"') == '"x64"',
+            "snapshot GN architecture mismatch")
     return {"status": "verified", "platform": "windows", "arch": "x64", "version": VERSION,
             "restored_patches": len(series["patches"]), "restored_outputs": len(patches["outputs"])}
 
@@ -175,8 +183,10 @@ def validate_archive_listing(listing: str) -> dict[str, dict]:
                 and not any(part.startswith(".chromix-upstream-restore-") for part in parts),
                 "snapshot contains cold output or interrupted migration state")
         members[folded] = record
-    for marker in MARKERS:
+    for marker in (*MARKERS, *OPTIONAL_MARKERS):
         record = members.get("chromix/" + marker.lower())
+        if record is None and marker in OPTIONAL_MARKERS:
+            continue
         require(record is not None and record.get("Folder", "-") == "-"
                 and re.fullmatch(r"[0-9]+", record.get("Size", ""))
                 and 0 < int(record["Size"]) <= 32 * 1024 * 1024, "snapshot marker missing or oversized: " + marker)
@@ -193,11 +203,13 @@ def verify_snapshot_archive(archive: Path, seven_zip: str | None = None) -> dict
     require(bool(command), "7z is required to inspect the checkpoint")
     listing = subprocess.run([command, "l", "-slt", "-ba", "-sccUTF-8", str(archive)],
                              check=True, capture_output=True).stdout.decode("utf-8", "strict")
-    validate_archive_listing(listing)
+    members = validate_archive_listing(listing)
     files = {}
-    for marker in MARKERS:
-        files[marker] = subprocess.run([command, "e", str(archive), "chromix/" + marker, "-so"],
-                                       check=True, capture_output=True).stdout
+    for marker in (*MARKERS, *OPTIONAL_MARKERS):
+        record = members.get("chromix/" + marker.lower())
+        if record is not None:
+            files[marker] = subprocess.run([command, "e", str(archive), record["Path"], "-so"],
+                                           check=True, capture_output=True).stdout
     result = validate_snapshot_files(files)
     result["archive"] = str(archive)
     return result

@@ -117,7 +117,6 @@ class Fixture:
         put(self.src, "source.cc", "v224\r\n")
         put(self.src, "lite.txt", "lite\n")
         put(self.src, migration.SOURCE_VERSION, "MAJOR=155\nMINOR=0\nBUILD=8059\nPATCH=39\n")
-        put(self.work, ".chromix-target-arch", "x64\n")
         for name in migration.upstream.REQUIRED:
             if not (self.src / name).exists():
                 put(self.src, name, "unchanged\n")
@@ -179,8 +178,12 @@ class Fixture:
         return migration.migrate(self.work, self.donor, self.target, migration.DONOR_SHA)
 
 
-def test_full_migration_preserves_ninja_receipt_version_and_advances_markers(tmp_path, monkeypatch):
+@pytest.mark.parametrize("marker", [None, "x64\r\n"])
+def test_full_migration_preserves_ninja_receipt_version_and_advances_markers(tmp_path, monkeypatch, marker):
     fx = Fixture(tmp_path, monkeypatch)
+    if marker is not None:
+        put(fx.work, ".chromix-target-arch", marker)
+    arch_state = migration.safe._capture(fx.work, {".chromix-target-arch"})
     ninja = snapshot(fx.src / "out")
     immutable = {n: snapshot(fx.src)[n] for n in (migration.upstream.MARKER, migration.SOURCE_VERSION)}
     before = (fx.src / "source.cc").stat().st_mtime_ns
@@ -191,6 +194,7 @@ def test_full_migration_preserves_ninja_receipt_version_and_advances_markers(tmp
     assert (fx.src / "source.cc").read_bytes() == b"v225\r\n"
     assert (fx.src / "source.cc").stat().st_mtime_ns >= before + 1_000_000_000
     assert snapshot(fx.src / "out") == ninja
+    assert migration.safe._capture(fx.work, {".chromix-target-arch"}) == arch_state
     assert all(snapshot(fx.src)[n] == value for n, value in immutable.items())
     assert (fx.src / migration.READY).read_text().strip() == fx.key
     assert (fx.src / ".chromix-patch-selection").read_text().strip() == fx.key.rsplit("|", 1)[1]
@@ -418,3 +422,128 @@ def test_repository_gate_authenticates_real_donor_without_committing(tmp_path, m
     put(target, "patches/untracked.patch", "unapproved\n")
     with pytest.raises(RuntimeError, match="extra/missing preparation"):
         migration._repository_inputs(shutil.which("git"), donor, target)
+
+
+def test_exact_donor_marker_and_snapshot_packaging_contract():
+    def donor_file(name):
+        return git("-C", ROOT, "show", migration.DONOR_SHA + ":" + name).decode()
+
+    stage = donor_file("build/windows/ci-stage.ps1")
+    guard = donor_file("build/windows/assert-target-arch.ps1")
+    parts = donor_file("build/windows/ci-parts.ps1")
+    prepare = donor_file("build/windows/prepare-ungoogled.ps1")
+    assert '$InitializeTarget = $Arch -eq "arm64" -and' in stage
+    assert '-RequireMarker:(($FromArtifact -or $FromSynced) -and $Arch -eq "arm64")' in stage
+    assert 'if ($Arch -eq "arm64") {\n      & "$PSScriptRoot\\assert-target-arch.ps1" -WorkDir $WorkDir -Arch $Arch -Initialize' in stage
+    for script, root in ((stage, "WorkDir"), (parts, "workDir"), (prepare, "Root")):
+        assert f'if ($Arch -eq "arm64" -or (Test-Path (Join-Path ${root} ".chromix-target-arch"))) {{' in script
+    assert '-WorkDir $workDir -Arch $Arch -RequireMarker' in parts
+    assert 'if ($Initialize -and -not (Test-Path -LiteralPath $marker)) {' in guard
+    assert 'if ($saved -cne $Arch) { throw' in guard
+    assert '$receipt.identity.platform -cne "windows" -or $receipt.identity.arch -cne $Arch' in guard
+    assert '& $SevenZip a -v9g -mx=1 -mtc=on "$PartsDir\\stage\\tree.7z" chromix' in parts
+    restored = prepare.split('if (-not (Test-Path $readyMarker)) {', 1)[1].split('return', 1)[0]
+    for name in (".chromix-source-unpacked", ".chromix-ungoogled-core", ".chromix-ungoogled-windows",
+                 ".chromix-binaries-pruned", ".chromix-patches", ".chromix-patch-selection",
+                 ".chromix-domain-substituted", ".chromix-toolchain-ready", migration.READY):
+        assert f'Set-Marker "{name}"' in restored
+    assert 'Join-Path $fingerprintDiagnostics ("source-" + [Guid]::NewGuid().ToString(\'N\') + ".json")' in stage
+    assert "Join-Path $RecoveryDiagnostics 'source-verification.json'" in stage
+    assert 'if ($Arch -eq "arm64") {\n    if (-not (Test-Path -LiteralPath $FingerprintSourceReport -PathType Leaf))' in stage
+    assert 'Copy-Item -LiteralPath $FingerprintSourceReport -Destination "$Root\\dist\\source-verification.json"' in stage
+    assert "source-verification.json" not in parts
+
+
+@pytest.mark.parametrize("marker", ["", "ARM64", "arm64", "x86", "x64\narm64", b"\xff"])
+def test_present_conflicting_arch_marker_never_uses_legacy_fallback(tmp_path, monkeypatch, marker):
+    fx = Fixture(tmp_path, monkeypatch)
+    put(fx.work, ".chromix-target-arch", marker)
+    before = snapshot(fx.work)
+    with pytest.raises((ValueError, RuntimeError)):
+        fx.run()
+    assert snapshot(fx.work) == before
+    assert not (fx.work / migration.BLOCKER).exists()
+
+
+@pytest.mark.parametrize("args", [
+    'target_os = "win"\nchrome_pgo_phase = 2\n',
+    'target_cpu = "arm64"\ntarget_os = "win"\nchrome_pgo_phase = 2\n',
+    'target_cpu = "x64"\ntarget_os = "win"\nv8_target_cpu = "arm64"\nchrome_pgo_phase = 2\n',
+    'target_cpu = "x64"\ntarget_os = "win"\nif (true) { target_cpu = "arm64" }\n',
+])
+def test_unmarked_migration_requires_strict_x64_gn(tmp_path, monkeypatch, args):
+    fx = Fixture(tmp_path, monkeypatch)
+    put(fx.src, "out/Default/args.gn", args)
+    before = snapshot(fx.work)
+    with pytest.raises((ValueError, RuntimeError)):
+        fx.run()
+    assert snapshot(fx.work) == before
+    assert not (fx.work / migration.BLOCKER).exists()
+
+
+@pytest.mark.parametrize("repository", ["donor", "target"])
+def test_unmarked_migration_cannot_skip_upstream_receipt_verification(tmp_path, monkeypatch, repository):
+    fx = Fixture(tmp_path, monkeypatch)
+    verify = migration.upstream.verify_restored
+
+    def reject(work, platform, arch, *, repo):
+        assert (work, platform, arch) == (fx.work, "windows", "x64")
+        if repo == getattr(fx, repository):
+            raise ValueError("receipt manifest/platform/architecture mismatch")
+        return verify(work, platform, arch, repo=repo)
+
+    monkeypatch.setattr(migration.upstream, "verify_restored", reject)
+    before = snapshot(fx.work)
+    with pytest.raises(ValueError, match="receipt manifest"):
+        fx.run()
+    assert snapshot(fx.work) == before
+    assert not (fx.work / migration.BLOCKER).exists()
+
+
+@pytest.mark.parametrize("marker", ["x64", "arm64"])
+def test_arch_marker_appearance_during_migration_is_not_ignored(tmp_path, monkeypatch, marker):
+    fx = Fixture(tmp_path, monkeypatch)
+    roundtrip = migration._roundtrip
+
+    def race(*args):
+        proof = roundtrip(*args)
+        put(fx.work, ".chromix-target-arch", marker)
+        return proof
+
+    monkeypatch.setattr(migration, "_roundtrip", race)
+    before = snapshot(fx.src)
+    with pytest.raises(RuntimeError, match="changed concurrently"):
+        fx.run()
+    assert snapshot(fx.src) == before
+    assert (fx.work / migration.BLOCKER).is_dir()
+
+
+@pytest.mark.parametrize("name", [".chromix-source-unpacked", ".chromix-ungoogled-core",
+    ".chromix-ungoogled-windows", ".chromix-binaries-pruned", ".chromix-domain-substituted",
+    ".chromix-toolchain-ready", ".chromix-patches", ".chromix-patch-selection", migration.READY])
+def test_legacy_arch_exception_does_not_make_source_layer_markers_optional(tmp_path, monkeypatch, name):
+    fx = Fixture(tmp_path, monkeypatch)
+    (fx.src / name).unlink()
+    before = snapshot(fx.work)
+    with pytest.raises(RuntimeError):
+        fx.run()
+    assert snapshot(fx.work) == before
+    assert not (fx.work / migration.BLOCKER).exists()
+
+
+@pytest.mark.parametrize("kind", ["directory", "symlink", "dangling"])
+def test_legacy_arch_exception_does_not_accept_unsafe_marker(tmp_path, monkeypatch, kind):
+    fx = Fixture(tmp_path, monkeypatch)
+    marker = fx.work / ".chromix-target-arch"
+    if kind == "directory":
+        marker.mkdir()
+    else:
+        target = fx.work / "arch.txt"
+        if kind == "symlink":
+            target.write_text("x64")
+        marker.symlink_to(target)
+    before = snapshot(fx.src)
+    with pytest.raises(RuntimeError):
+        fx.run()
+    assert snapshot(fx.src) == before
+    assert not (fx.work / migration.BLOCKER).exists()

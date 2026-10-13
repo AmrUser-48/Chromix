@@ -185,7 +185,9 @@ def _blockers(work, src, owned=False):
 
 
 def _markers(work, src, key):
-    _require(safe._text(safe._file(work, ".chromix-target-arch")) == "x64", "architecture must be x64")
+    # This fixed donor left x64 unmarked; strict GN and verified receipts bind the architecture.
+    arch = safe._file(work, ".chromix-target-arch", missing=True)
+    _require(not arch.exists() or safe._text(arch) == "x64", "architecture must be x64")
     _require(not (src / "out/Chromix").exists(), "cold out/Chromix snapshot is unsupported")
     values = {".chromix-source-unpacked": VERSION, ".chromix-ungoogled-core": CORE,
               ".chromix-ungoogled-windows": WINDOWS, ".chromix-binaries-pruned": CORE,
