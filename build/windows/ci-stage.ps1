@@ -12,6 +12,8 @@ param(
   [ValidateRange(60, 300)] [int]$StageBudgetMinutes = 300,
   [switch]$FromArtifact,
   [switch]$FromSynced,
+  [string]$MigrationReceipt = "",
+  [string]$MigrationDonorRepo = "",
   [switch]$UseUpstreamCache,
   [ValidatePattern('\A[0-9]*\z')] [string]$UpstreamRunId = "",
   [switch]$ValidateOnly,
@@ -791,7 +793,31 @@ $env:DEPOT_TOOLS_COLLECT_METRICS = "0"
 if ($FromArtifact -and -not (Test-Path "C:\restore\tree.7z.001")) {
   throw "resume artifact missing: C:\restore\tree.7z.001"
 }
-if ($FromSynced) {
+if ($MigrationReceipt -or $MigrationDonorRepo) {
+  if (-not $FromSynced -or $FromArtifact -or $StageIndex -ne 8 -or $Arch -cne 'x64' -or
+      $BuildProfile -cne 'native' -or -not $RequireUpstreamCache -or $ValidateOnly -or
+      -not $MigrationReceipt -or -not $MigrationDonorRepo -or
+      $env:CHROMIX_WINDOWS_CACHE_REQUIRED -cne '1' -or $env:GITHUB_JOB -cne 'build-8' -or
+      $env:GITHUB_RUN_ID -cnotmatch '\A[1-9][0-9]*\z' -or $env:GITHUB_RUN_ID -ceq '38175278759' -or
+      $env:GITHUB_RUN_ATTEMPT -cnotmatch '\A[1-9][0-9]*\z' -or
+      $env:CHROMIX_WINDOWS_MIGRATION_REPO -or $env:CHROMIX_WINDOWS_MIGRATION_SHA -or
+      $env:CHROMIX_WINDOWS_MIGRATION_PROFILE -or
+      $env:CHROMIX_WINDOWS_VERIFY_SOURCE_REPO -or $env:CHROMIX_WINDOWS_VERIFY_SOURCE_SHA) {
+    throw 'pre-restored Windows155 resume requires native x64 build-8 and exact migration inputs'
+  }
+  $RecoveryDiagnostics = Join-Path $WorkDir "fingerprint-diagnostics\windows155-stage8-$env:GITHUB_RUN_ID-attempt-$env:GITHUB_RUN_ATTEMPT"
+  if (Test-Path -LiteralPath $RecoveryDiagnostics) { throw 'current recovery diagnostics already exist' }
+  New-Item -ItemType Directory -Path $RecoveryDiagnostics | Out-Null
+  & python -X utf8 (Join-Path $Repo 'tools\validate_windows155_stage7_checkpoint.py') `
+    --prepare-report (Join-Path $RecoveryDiagnostics 'prepare-report.json') --work-dir $Root `
+    --donor-repo $MigrationDonorRepo --repo $Repo --target-sha $env:GITHUB_SHA --migration-receipt $MigrationReceipt
+  if ($LASTEXITCODE -ne 0) { throw 'Windows155 migration/source receipt verification failed; refusing cold fallback' }
+  foreach ($name in @('windows-snapshot.json', 'windows-snapshot-download.json', 'windows-x64-snapshot-proof.json')) {
+    [IO.File]::Copy((Join-Path $env:RUNNER_TEMP $name), (Join-Path $RecoveryDiagnostics $name), $false)
+  }
+  [IO.File]::Copy($MigrationReceipt, (Join-Path $RecoveryDiagnostics 'migration.json'), $false)
+  Write-OutVar recovery_report_dir $RecoveryDiagnostics
+} elseif ($FromSynced) {
   if ($FromArtifact -or $StageIndex -ne 13 -or $Arch -cne 'arm64' -or
       $BuildProfile -cne 'native' -or -not $RequireUpstreamCache -or $ValidateOnly -or
       $env:CHROMIX_WINDOWS_MIGRATION_REPO -or $env:CHROMIX_WINDOWS_MIGRATION_SHA -or
@@ -808,13 +834,13 @@ if ($FromSynced) {
   if (Test-Path -LiteralPath (Join-Path $Src 'out\Chromix')) {
     throw 'pre-restored ARM64 checkpoint contains cold output'
   }
-  $migrationReceipt = Get-Content -LiteralPath (Join-Path $Src '.chromix-windows154-arm64-migration.json') -Raw | ConvertFrom-Json
-  if ($migrationReceipt.status -cne 'migrated' -or $migrationReceipt.arch -cne 'arm64' -or
-      $migrationReceipt.platform -cne 'windows' -or $migrationReceipt.version -cne '154.0.8037.97' -or
-      $migrationReceipt.previous_sha -cne '15a6425cfbd7a7ecd4a69ad206d0650778bf8253' -or
-      $migrationReceipt.donor_run_id -ne 37455471388 -or $migrationReceipt.donor_job_id -ne 113438156537 -or
-      $migrationReceipt.old_patch_count -ne 216 -or $migrationReceipt.patch_count -ne 224 -or
-      $env:GITHUB_SHA -cnotmatch '\A[0-9a-f]{40}\z' -or $migrationReceipt.target_sha -cne $env:GITHUB_SHA) {
+  $arm64MigrationReceipt = Get-Content -LiteralPath (Join-Path $Src '.chromix-windows154-arm64-migration.json') -Raw | ConvertFrom-Json
+  if ($arm64MigrationReceipt.status -cne 'migrated' -or $arm64MigrationReceipt.arch -cne 'arm64' -or
+      $arm64MigrationReceipt.platform -cne 'windows' -or $arm64MigrationReceipt.version -cne '154.0.8037.97' -or
+      $arm64MigrationReceipt.previous_sha -cne '15a6425cfbd7a7ecd4a69ad206d0650778bf8253' -or
+      $arm64MigrationReceipt.donor_run_id -ne 37455471388 -or $arm64MigrationReceipt.donor_job_id -ne 113438156537 -or
+      $arm64MigrationReceipt.old_patch_count -ne 216 -or $arm64MigrationReceipt.patch_count -ne 224 -or
+      $env:GITHUB_SHA -cnotmatch '\A[0-9a-f]{40}\z' -or $arm64MigrationReceipt.target_sha -cne $env:GITHUB_SHA) {
     throw 'pre-restored ARM64 migration receipt does not bind the exact donor and current target'
   }
 }
