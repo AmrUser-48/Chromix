@@ -14,7 +14,7 @@ param(
   [switch]$FromSynced,
   [string]$MigrationReceipt = "",
   [string]$MigrationDonorRepo = "",
-  [ValidateSet("stage7", "stage8")] [string]$MigrationCheckpoint = "stage7",
+  [ValidateSet("stage7", "stage8", "stage8-api")] [string]$MigrationCheckpoint = "stage7",
   [switch]$UseUpstreamCache,
   [ValidatePattern('\A[0-9]*\z')] [string]$UpstreamRunId = "",
   [switch]$ValidateOnly,
@@ -812,7 +812,10 @@ if ($MigrationReceipt -or $MigrationDonorRepo) {
   $RecoveryDiagnostics = Join-Path $WorkDir "fingerprint-diagnostics\windows155-stage8-$env:GITHUB_RUN_ID-attempt-$env:GITHUB_RUN_ATTEMPT"
   if (Test-Path -LiteralPath $RecoveryDiagnostics) { throw 'current recovery diagnostics already exist' }
   New-Item -ItemType Directory -Path $RecoveryDiagnostics | Out-Null
-  $migrationValidator = if ($MigrationCheckpoint -ceq 'stage8') {
+  $migrationValidator = if ($MigrationCheckpoint -ceq 'stage8-api') {
+    if ($env:GITHUB_RUN_ID -ceq '38387174079') { throw 'stage8-api donor run cannot be its own recovery' }
+    'tools\validate_windows155_stage8_api_checkpoint.py'
+  } elseif ($MigrationCheckpoint -ceq 'stage8') {
     if ($env:GITHUB_RUN_ID -ceq '38355909882') { throw 'stage8 donor run cannot be its own recovery' }
     'tools\validate_windows155_stage8_checkpoint.py'
   } else { 'tools\validate_windows155_stage7_checkpoint.py' }

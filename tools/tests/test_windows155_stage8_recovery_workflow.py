@@ -122,7 +122,7 @@ def test_stage_guard_keeps_receipt_verification_and_native_acceptance_mandatory(
 
 def test_new_checkpoint_selector_is_explicit_and_legacy_default_remains():
     text = STAGE.read_text()
-    assert '[ValidateSet("stage7", "stage8")] [string]$MigrationCheckpoint = "stage7"' in text
+    assert '[ValidateSet("stage7", "stage8", "stage8-api")] [string]$MigrationCheckpoint = "stage7"' in text
     assert "tools\\validate_windows155_stage8_checkpoint.py" in text
     assert "tools\\validate_windows155_stage7_checkpoint.py" in text
     assert "-MigrationCheckpoint stage8" in WORKFLOW.read_text()
