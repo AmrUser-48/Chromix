@@ -14,6 +14,7 @@ param(
   [switch]$FromSynced,
   [string]$MigrationReceipt = "",
   [string]$MigrationDonorRepo = "",
+  [ValidateSet("stage7", "stage8")] [string]$MigrationCheckpoint = "stage7",
   [switch]$UseUpstreamCache,
   [ValidatePattern('\A[0-9]*\z')] [string]$UpstreamRunId = "",
   [switch]$ValidateOnly,
@@ -793,6 +794,9 @@ $env:DEPOT_TOOLS_COLLECT_METRICS = "0"
 if ($FromArtifact -and -not (Test-Path "C:\restore\tree.7z.001")) {
   throw "resume artifact missing: C:\restore\tree.7z.001"
 }
+if ($MigrationCheckpoint -cne 'stage7' -and (-not $MigrationReceipt -or -not $MigrationDonorRepo)) {
+  throw 'stage8 recovery requires both migration receipt and donor repository'
+}
 if ($MigrationReceipt -or $MigrationDonorRepo) {
   if (-not $FromSynced -or $FromArtifact -or $StageIndex -ne 8 -or $Arch -cne 'x64' -or
       $BuildProfile -cne 'native' -or -not $RequireUpstreamCache -or $ValidateOnly -or
@@ -808,7 +812,11 @@ if ($MigrationReceipt -or $MigrationDonorRepo) {
   $RecoveryDiagnostics = Join-Path $WorkDir "fingerprint-diagnostics\windows155-stage8-$env:GITHUB_RUN_ID-attempt-$env:GITHUB_RUN_ATTEMPT"
   if (Test-Path -LiteralPath $RecoveryDiagnostics) { throw 'current recovery diagnostics already exist' }
   New-Item -ItemType Directory -Path $RecoveryDiagnostics | Out-Null
-  & python -X utf8 (Join-Path $Repo 'tools\validate_windows155_stage7_checkpoint.py') `
+  $migrationValidator = if ($MigrationCheckpoint -ceq 'stage8') {
+    if ($env:GITHUB_RUN_ID -ceq '38355909882') { throw 'stage8 donor run cannot be its own recovery' }
+    'tools\validate_windows155_stage8_checkpoint.py'
+  } else { 'tools\validate_windows155_stage7_checkpoint.py' }
+  & python -X utf8 (Join-Path $Repo $migrationValidator) `
     --prepare-report (Join-Path $RecoveryDiagnostics 'prepare-report.json') --work-dir $Root `
     --donor-repo $MigrationDonorRepo --repo $Repo --target-sha $env:GITHUB_SHA --migration-receipt $MigrationReceipt
   if ($LASTEXITCODE -ne 0) { throw 'Windows155 migration/source receipt verification failed; refusing cold fallback' }
