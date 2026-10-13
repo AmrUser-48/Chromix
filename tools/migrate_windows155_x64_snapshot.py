@@ -22,7 +22,7 @@ import time
 
 import apply_restored_patches as arp
 import migrate_windows_snapshot as safe
-import merge_gn_args
+import install_windows_metagen_bindings as metagen
 import patch_selection as selection
 from platform_pins import load_pins
 import restore_upstream_cache as upstream
@@ -209,17 +209,33 @@ def _markers(work, src, key):
 
 
 def _native_args(src, target, core, tooling, receipt):
-    expected = dict(receipt["original_args"]["assignments"])
-    for root, name in ((core, "flags.gn"), (tooling, "flags.windows.gn"),
-                       (target, "build/args.windows.gn")):
-        _, values = merge_gn_args.parse(safe._file(root, name))
-        expected.update(upstream.parse_gn_assignments("\n".join(values.values())))
-    original_pgo = receipt["original_args"]["assignments"].get("chrome_pgo_phase")
-    _require(original_pgo == "2" and receipt["original_args"].get("sha256") == ORIGINAL_ARGS_SHA256,
+    original = receipt["original_args"]
+    _require(original["assignments"].get("chrome_pgo_phase") == "2"
+             and original.get("sha256") == ORIGINAL_ARGS_SHA256,
              "requires the exact original Windows155 native PGO2 configuration")
-    expected["chrome_pgo_phase"] = original_pgo
+    # Replay the pinned ci-stage native merge and post-merge configure in scratch only.
+    with tempfile.TemporaryDirectory(prefix="chromix-windows155-x64-gn-") as directory:
+        out = Path(directory)
+        args = out / "args.gn"
+        args.write_text(original["text"], encoding="utf-8")
+        inputs = [safe._file(root, name) for root, name in (
+            (core, "flags.gn"), (tooling, "flags.windows.gn"), (target, "build/args.windows.gn"))]
+        result = subprocess.run([sys.executable, "-I", str(safe._file(target, "tools/merge_gn_args.py")),
+            str(args), "--preserve-pgo-from", str(args), str(args), *map(str, inputs)],
+            cwd=out, stdin=subprocess.DEVNULL, capture_output=True, timeout=120)
+        _require(result.returncode == 0,
+                 "pinned native GN merge failed: " + result.stderr.decode(errors="replace"))
+        metagen.configure(src, out, VERSION)
+        expected = upstream.parse_gn_assignments(args.read_text(encoding="utf-8"))
     actual = upstream.parse_gn_assignments(safe._text(safe._file(src, "out/Default/args.gn")))
-    _require(actual == expected, "GN args differ from pinned native x64 inputs")
+    difference = {
+        "missing": {key: expected[key] for key in sorted(expected.keys() - actual.keys())},
+        "unexpected": {key: actual[key] for key in sorted(actual.keys() - expected.keys())},
+        "changed": {key: {"expected": expected[key], "actual": actual[key]}
+                    for key in sorted(expected.keys() & actual.keys()) if expected[key] != actual[key]},
+    }
+    _require(actual == expected, "GN args differ from pinned native x64 inputs: "
+             + json.dumps(difference, sort_keys=True, separators=(",", ":")))
 
 
 def _names(patches, lite):

@@ -122,6 +122,7 @@ class Fixture:
                 put(self.src, name, "unchanged\n")
         gn = 'target_cpu = "x64"\ntarget_os = "win"\nchrome_pgo_phase = 2\n'
         put(self.src, "out/Default/args.gn", gn)
+        put(self.target, "tools/merge_gn_args.py", (ROOT / "tools/merge_gn_args.py").read_bytes())
         for root, name in ((self.core, "flags.gn"), (self.tooling, "flags.windows.gn"),
                            (self.target, "build/args.windows.gn")):
             put(root, name, gn)
@@ -139,7 +140,7 @@ class Fixture:
         monkeypatch.setattr(migration.safe, "_tree", lambda git, root, pin: (pin, {}))
         monkeypatch.setattr(migration.upstream, "verify_restored", lambda *a, **kw:
             {"immutable": True, "original_args": {"assignments": migration.upstream.parse_gn_assignments(gn),
-                "sha256": migration.ORIGINAL_ARGS_SHA256}})
+                "text": gn, "sha256": migration.ORIGINAL_ARGS_SHA256}})
         old_selected = copy.deepcopy(self.selected)
         old_selected["patches"] = old_selected["patches"][:224]
         old_selected["series_sha256"] = migration.arp._sha((self.donor / "patches/series").read_bytes())
@@ -372,11 +373,15 @@ def test_real_png_addition_git_roundtrip_on_pinned_source(tmp_path):
     assert migration.arp._sha((stage / migration.SOURCE).read_bytes()) == BEFORE
 
 
-@pytest.mark.parametrize("mutation", ["pgo0", "receipt-hash", "cold", "no-exe"])
+@pytest.mark.parametrize("mutation", ["pgo0", "original-pgo", "receipt-hash", "cold", "no-exe"])
 def test_compiled_native_pgo2_profile_is_required(tmp_path, monkeypatch, mutation):
     fx = Fixture(tmp_path, monkeypatch)
     if mutation == "pgo0":
         put(fx.src, "out/Default/args.gn", 'target_cpu = "x64"\ntarget_os = "win"\nchrome_pgo_phase = 0\n')
+    elif mutation == "original-pgo":
+        monkeypatch.setattr(migration.upstream, "verify_restored", lambda *a, **kw:
+            {"original_args": {"sha256": migration.ORIGINAL_ARGS_SHA256,
+                               "assignments": {"chrome_pgo_phase": "0"}}})
     elif mutation == "receipt-hash":
         monkeypatch.setattr(migration, "ORIGINAL_ARGS_SHA256", "0" * 64)
         # The fixture verifier follows the constant; replace it with an independently wrong receipt.
@@ -390,6 +395,120 @@ def test_compiled_native_pgo2_profile_is_required(tmp_path, monkeypatch, mutatio
     with pytest.raises((RuntimeError, ValueError)):
         fx.run()
     assert snapshot(fx.src) == before
+
+
+def native_gn_fixture(tmp_path, monkeypatch):
+    fx = Fixture(tmp_path, monkeypatch)
+    library = "third_party/llvm-build/Release+Asserts/bin/libclang.dll"
+    original = ('target_cpu = "x64"\ntarget_os = "win"\nchrome_pgo_phase = 2\n'
+                'thin_lto_enable_optimizations = true\n'
+                'v8_metagen_libclang_so = "C:/ungoogled-chromium-windows/build/src/' + library + '"\n'
+                'donor_only = ["preserved", 23]\nmerge_precedence = 1\nmerge_precedence = 2 # last wins\n')
+    receipt = {"original_args": {"text": original, "sha256": migration.ORIGINAL_ARGS_SHA256,
+        "assignments": migration.upstream.parse_gn_assignments(original)}}
+    monkeypatch.setattr(migration.upstream, "verify_restored", lambda *a, **kw: receipt)
+    put(fx.core, "flags.gn", "merge_precedence = 3\ncore_only = true\nchrome_pgo_phase = 0\n")
+    put(fx.tooling, "flags.windows.gn", "merge_precedence = 4\nwindows_only = 23\n")
+    put(fx.target, "build/args.windows.gn", (ROOT / "build/args.windows.gn").read_bytes())
+    put(fx.src, library, b"source libclang fixture")
+    out = fx.src / "out/Default"
+    args = put(fx.src, "out/Default/args.gn", original)
+    subprocess.run([sys.executable, str(ROOT / "tools/merge_gn_args.py"), str(args),
+        "--preserve-pgo-from", str(args), str(args), str(fx.core / "flags.gn"),
+        str(fx.tooling / "flags.windows.gn"), str(fx.target / "build/args.windows.gn")],
+        check=True, capture_output=True)
+    assert migration.metagen.configure(fx.src, out, migration.VERSION)["status"] == "rebased"
+    return fx, receipt, library
+
+
+def test_native_gn_replays_pinned_production_merge_and_metagen_read_only(tmp_path, monkeypatch):
+    fx, receipt, library = native_gn_fixture(tmp_path, monkeypatch)
+    args = migration.upstream.parse_gn_assignments((fx.src / "out/Default/args.gn").read_text())
+    assert args["chrome_pgo_phase"] == "2"
+    assert args["merge_precedence"] == "4"
+    assert args["donor_only"] == '["preserved",23]'
+    assert args["v8_metagen_libclang_so"] == json.dumps((fx.src / library).as_posix())
+    before = snapshot(fx.work)
+    saved = copy.deepcopy(receipt)
+    migration._native_args(fx.src, fx.target, fx.core, fx.tooling, receipt)
+    assert snapshot(fx.work) == before
+    assert receipt == saved
+    report = fx.run()
+    assert report["patch_count"] == 225
+    assert snapshot(fx.src / "out") == {
+        name[len("src/out/"):]: value for name, value in before.items() if name.startswith("src/out/")}
+
+
+@pytest.mark.parametrize("mutation", ["old-path", "other-path", "bindings-path", "unknown",
+    "missing", "precedence", "fast", "pgo", "multiple", "missing-dll"])
+def test_native_gn_configure_does_not_allow_arbitrary_parameter_drift(tmp_path, monkeypatch, mutation):
+    fx, receipt, library = native_gn_fixture(tmp_path, monkeypatch)
+    path = fx.src / "out/Default/args.gn"
+    expected = migration.upstream.parse_gn_assignments(path.read_text())
+    actual = dict(expected)
+    if mutation == "old-path":
+        actual["v8_metagen_libclang_so"] = receipt["original_args"]["assignments"]["v8_metagen_libclang_so"]
+    elif mutation == "other-path":
+        actual["v8_metagen_libclang_so"] = '"C:/unreviewed/libclang.dll"'
+    elif mutation == "bindings-path":
+        actual["v8_metagen_libclang_bindings_dir"] = '"C:/unreviewed/python"'
+    elif mutation == "unknown":
+        actual["unreviewed_argument"] = "true"
+    elif mutation == "missing":
+        del actual["donor_only"]
+    elif mutation == "precedence":
+        actual["merge_precedence"] = "3"
+    elif mutation == "fast":
+        actual["thin_lto_enable_optimizations"] = "false"
+    elif mutation == "pgo":
+        actual["chrome_pgo_phase"] = "0"
+    elif mutation == "multiple":
+        del actual["donor_only"]
+        actual["unreviewed_argument"] = "true"
+        actual["v8_metagen_libclang_so"] = '"C:/unreviewed/libclang.dll"'
+    else:
+        (fx.src / library).unlink()
+    path.write_text("\n".join(f"{key} = {value}" for key, value in actual.items()) + "\n")
+    before = snapshot(fx.work)
+    with pytest.raises((RuntimeError, ValueError)) as error:
+        fx.run()
+    if mutation == "missing-dll":
+        assert "source libclang DLL is missing" in str(error.value)
+    else:
+        prefix = "GN args differ from pinned native x64 inputs: "
+        assert str(error.value).startswith(prefix)
+        assert json.loads(str(error.value)[len(prefix):]) == {
+            "missing": {key: expected[key] for key in expected.keys() - actual.keys()},
+            "unexpected": {key: actual[key] for key in actual.keys() - expected.keys()},
+            "changed": {key: {"expected": expected[key], "actual": actual[key]}
+                        for key in expected.keys() & actual.keys() if expected[key] != actual[key]},
+        }
+    assert snapshot(fx.work) == before
+    assert not (fx.work / migration.BLOCKER).exists()
+
+
+def test_native_gn_production_helpers_and_order_are_bound_to_exact_donor():
+    for name in ("tools/merge_gn_args.py", "tools/install_windows_metagen_bindings.py",
+                 "tools/prepare_restored_build.py", "build/windows/prepare-ungoogled.ps1",
+                 "build/args.windows.gn"):
+        assert migration._protected(name)
+        assert (ROOT / name).read_text(encoding="utf-8") == git(
+            "-C", ROOT, "show", migration.DONOR_SHA + ":" + name).decode("utf-8")
+    stage = git("-C", ROOT, "show", migration.DONOR_SHA + ":build/windows/ci-stage.ps1").decode()
+    assert 'else { "native" }' in stage
+    assert 'if ($BuildProfile -in @("fast", "release")) { $mergeArgs += @("--build-profile", $BuildProfile) }' in stage
+    steps = [stage.index(text) for text in (
+        '& "$PSScriptRoot\\prepare-ungoogled.ps1" -Root $WorkDir',
+        '$mergeArgs += @("--preserve-pgo-from", $gnArgs)',
+        'if ($RestoredUpstream) { $mergeArgs += $gnArgs }',
+        '(Join-Path $UngoogledTooling "flags.gn")',
+        '(Join-Path $WindowsTooling "flags.windows.gn")',
+        '(Join-Path $Repo "build\\args.windows.gn")',
+        'python @mergeArgs',
+        'python (Join-Path $Repo "tools\\prepare_restored_build.py") --phase finish',
+        '& python -X utf8 $metagenBindings --configure --src $Src --out $OutDir',
+        '& $gn gen $OutDir --fail-on-unused-args')]
+    assert steps == sorted(steps)
 
 
 @pytest.mark.parametrize("unexpected", [None, "build/macos/package-macos.sh",
