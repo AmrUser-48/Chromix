@@ -140,10 +140,9 @@ def snapshot_files():
                 "series": {"patches": [{"path": f"fixture-{i}.patch"} for i in range(224)]}}
     digest = checkpoint.hashlib.sha256((json.dumps(identity, sort_keys=True, indent=2) + "\n").encode()).hexdigest()
     return {name: value.encode() for name, value in {
-        ".chromix-target-arch": "x64\n",
         "src/chrome/VERSION": "MAJOR=155\nMINOR=0\nBUILD=8059\nPATCH=39\n",
         "src/.chromix-upstream-restored.json": json.dumps({"status": "restored", "platform": "windows",
-            "arch": "x64", "identity": {"arch": "x64"}}),
+            "arch": "x64", "identity": {"platform": "windows", "arch": "x64"}}),
         "src/.chromix-restored-patches.json": json.dumps({"schema_version": 1, "identity_sha256": digest,
             "outputs": {"source.cc": "b" * 64}, "identity": identity}),
         "src/.chromix-source-ready": "|".join((checkpoint.VERSION, checkpoint.CORE, checkpoint.WINDOWS, "a" * 64)),
@@ -199,22 +198,31 @@ def test_archive_missing_and_oversized_markers_rejected():
     with pytest.raises(ValueError, match="marker"):
         checkpoint.validate_archive_listing(listing(files))
     with pytest.raises(ValueError, match="marker"):
-        checkpoint.validate_archive_listing(listing().replace("Size = 4\n", "Size = 999999999\n", 1))
+        checkpoint.validate_archive_listing(listing().replace(
+            f"Size = {len(snapshot_files()['src/chrome/VERSION'])}\n", "Size = 999999999\n", 1))
 
 
-def test_archive_inspection_reads_only_fixed_markers(monkeypatch, tmp_path):
+@pytest.mark.parametrize("marker", [None, b"x64\r\n", b"arm64", b"", b"\xff"])
+def test_archive_inspection_reads_only_fixed_markers(monkeypatch, tmp_path, marker):
     calls = []
     files = snapshot_files()
+    if marker is not None:
+        files[".chromix-target-arch"] = marker
 
     def run(command, **kwargs):
         calls.append(command)
-        data = listing().encode() if command[1] == "l" else files[command[3].removeprefix("chromix/")]
+        data = listing(files).encode() if command[1] == "l" else files[command[3].removeprefix("chromix/")]
         return subprocess.CompletedProcess(command, 0, stdout=data)
 
     monkeypatch.setattr(checkpoint.subprocess, "run", run)
+    if marker not in (None, b"x64\r\n"):
+        with pytest.raises(ValueError):
+            checkpoint.verify_snapshot_archive(tmp_path / "tree.7z.001", "7z")
+        return
     report = checkpoint.verify_snapshot_archive(tmp_path / "tree.7z.001", "7z")
     assert report["status"] == "verified"
-    assert len(calls) == len(checkpoint.MARKERS) + 1
+    assert len(calls) == len(checkpoint.MARKERS) + 1 + int(marker is not None)
+    assert all("chromix/.chromix-target-arch" not in call for call in calls) == (marker is None)
     assert all(command[1] in ("l", "e") for command in calls)
     assert "-ba" in calls[0] and "-sccUTF-8" in calls[0]
 
@@ -288,4 +296,79 @@ def test_prepared_resume_fails_closed(migrated, mutation):
         if mutation != "copy":
             (fx.src / migration.RECEIPT).write_bytes(payload)
     with pytest.raises((ValueError, RuntimeError)):
+        checkpoint.verify_prepared(fx.work.parent, fx.donor, fx.target, migration.TARGET_BASE_SHA, path)
+
+
+@pytest.mark.parametrize("name", checkpoint.MARKERS)
+def test_unmarked_donor_still_requires_every_source_and_architecture_proof(name):
+    files = snapshot_files()
+    del files[name]
+    with pytest.raises(ValueError, match="marker"):
+        checkpoint.validate_archive_listing(listing(files))
+    with pytest.raises(ValueError, match="markers missing"):
+        checkpoint.validate_snapshot_files(files)
+
+
+@pytest.mark.parametrize("args", [
+    'target_os = "win"', 'target_cpu = "x64"',
+    'target_cpu = "x64"\ntarget_cpu = "x64"\ntarget_os = "win"',
+    'target_cpu = "x64"\ntarget_os = "win"\nv8_target_cpu = "arm64"',
+    'target_cpu = "x64"\ntarget_os = "win"\nv8_target_cpu = "x64"\nv8_target_cpu = "x64"',
+    'target_cpu = "x64"\ntarget_os = "win"\nif (true) { target_cpu = "arm64" }',
+    'target_cpu = getenv("ARCH")\ntarget_os = "win"',
+    'target_cpu = "x64" + ""\ntarget_os = "win"',
+])
+@pytest.mark.parametrize("marked", [False, True])
+def test_gn_architecture_cannot_be_missing_ambiguous_or_conflicting(args, marked):
+    files = snapshot_files()
+    if marked:
+        files[".chromix-target-arch"] = b"x64"
+    files["src/out/Default/args.gn"] = args.encode()
+    with pytest.raises((ValueError, RuntimeError)):
+        checkpoint.validate_snapshot_files(files)
+
+
+@pytest.mark.parametrize("identity", [False, True])
+@pytest.mark.parametrize("field,value", [("arch", None), ("arch", "arm64"),
+                                         ("platform", None), ("platform", "linux")])
+def test_unmarked_donor_requires_consistent_upstream_receipt(identity, field, value):
+    files = snapshot_files()
+    name = "src/.chromix-upstream-restored.json"
+    receipt = json.loads(files[name])
+    target = receipt["identity"] if identity else receipt
+    if value is None:
+        del target[field]
+    else:
+        target[field] = value
+    files[name] = json.dumps(receipt).encode()
+    with pytest.raises(ValueError, match="upstream receipt"):
+        checkpoint.validate_snapshot_files(files)
+
+
+@pytest.mark.parametrize("record", ["Size = 0\nFolder = -", "Size = 1\nFolder = +",
+    "Size = 33554433\nFolder = -", "Size = 1\nSymbolic Link = src/chrome/VERSION",
+    "Size = 1\nHard Link = src/chrome/VERSION", "Size = 1\nReparse = +"])
+def test_optional_arch_marker_must_be_a_safe_nonempty_bounded_file(record):
+    with pytest.raises(ValueError):
+        checkpoint.validate_archive_listing(listing(extra=["Path = chromix/.chromix-target-arch\n" + record]))
+
+
+def test_case_variant_conflicting_arch_marker_is_inspected(monkeypatch, tmp_path):
+    files = snapshot_files()
+    files[".CHROMIX-TARGET-ARCH"] = b"arm64"
+
+    def run(command, **kwargs):
+        data = listing(files).encode() if command[1] == "l" else files[command[3].removeprefix("chromix/")]
+        return subprocess.CompletedProcess(command, 0, stdout=data)
+
+    monkeypatch.setattr(checkpoint.subprocess, "run", run)
+    with pytest.raises(ValueError, match="architecture mismatch"):
+        checkpoint.verify_snapshot_archive(tmp_path / "tree.7z.001", "7z")
+
+
+def test_prepared_report_rejects_conflicting_marker_after_unmarked_migration(migrated):
+    fx, receipt, path, migration = migrated
+    assert not (fx.work / ".chromix-target-arch").exists()
+    (fx.work / ".chromix-target-arch").write_text("arm64\n")
+    with pytest.raises(RuntimeError, match="architecture must be x64"):
         checkpoint.verify_prepared(fx.work.parent, fx.donor, fx.target, migration.TARGET_BASE_SHA, path)
