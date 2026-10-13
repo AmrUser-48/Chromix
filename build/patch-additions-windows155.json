@@ -8,6 +8,10 @@
     {
       "path": "patches/chromium155-windows/0227-opaque-png-export-consistency.patch",
       "sha256": "4c048a50930c3541a3bb9e4442ad7f18e94c04ebccf86c0cfbfc286b15a70751"
+    },
+    {
+      "path": "patches/chromium155-windows/0228-synchronous-launch-timezone.patch",
+      "sha256": "354c8c86228f6f937e8f61a0a7305d24a78a17c29be09c4c603b56cf787009e4"
     }
   ]
 }
