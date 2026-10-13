@@ -11,8 +11,10 @@ from pathlib import Path
 import re
 import shlex
 import shutil
+import struct
 import subprocess
 import sys
+import sysconfig
 import tempfile
 import urllib.request
 
@@ -30,6 +32,84 @@ SOURCE_PACKAGES = (
 )
 TARGET = "gen/v8/metagen/instance-types.h"
 MAX_FILE = 1024 * 1024
+PINS = {
+    "154.0.8037.97": None,
+    CHROMIUM_VERSION: {"v8_revision": V8_REVISION, "target_cpus": ("x64", "arm64")},
+}
+AMD64 = 0x8664
+
+
+def source_contract(src: Path, out: Path, version: str) -> str | None:
+    if version not in PINS:
+        raise ValueError("unsupported Chromium metagen bindings pin")
+    pin = PINS[version]
+    if pin is None:
+        return None
+    version_text = (src / "chrome/VERSION").read_text(encoding="utf-8")
+    values = re.findall(r"(?m)^(MAJOR|MINOR|BUILD|PATCH)=([0-9]+)$", version_text)
+    if (len(version_text.splitlines()) != 4 or len(values) != 4
+            or dict(values) != dict(zip(("MAJOR", "MINOR", "BUILD", "PATCH"), version.split(".")))):
+        raise ValueError("source chrome/VERSION does not match exact Chromium pin")
+    args = (out / "args.gn").read_text(encoding="utf-8")
+    selected = {}
+    for key in ("target_cpu", "v8_target_cpu", "host_cpu", "target_os"):
+        assignments = re.findall(r"(?m)^\s*" + key + r"\s*=([^\r\n]*)", args)
+        if not assignments and key != "target_cpu":
+            continue
+        if len(assignments) != 1:
+            raise ValueError(f"expected exactly one literal GN {key}")
+        match = re.fullmatch(r'\s*"([a-z0-9]+)"\s*(?:#.*)?', assignments[0])
+        if not match:
+            raise ValueError(f"expected exactly one literal GN {key}")
+        selected[key] = match[1]
+    arch = selected["target_cpu"]
+    if (arch not in pin["target_cpus"] or selected.get("v8_target_cpu", arch) != arch
+            or selected.get("host_cpu", "x64") != "x64" or selected.get("target_os", "win") != "win"):
+        raise ValueError("metagen requires a Windows x64 or arm64 target on an x64 host")
+    return arch
+
+
+def runtime_info() -> dict:
+    result = dict(platform=sys.platform, bits=struct.calcsize("P") * 8,
+                  site_packages=list(set(sysconfig.get_path(k) for k in ("purelib", "platlib"))))
+    if sys.platform == "win32":
+        import ctypes
+        from ctypes import wintypes
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel.GetCurrentProcess.restype = wintypes.HANDLE
+        kernel.IsWow64Process2.argtypes = (wintypes.HANDLE, ctypes.POINTER(wintypes.USHORT),
+                                          ctypes.POINTER(wintypes.USHORT))
+        kernel.IsWow64Process2.restype = wintypes.BOOL
+        process, native = wintypes.USHORT(), wintypes.USHORT()
+        if not kernel.IsWow64Process2(kernel.GetCurrentProcess(), ctypes.byref(process), ctypes.byref(native)):
+            raise ctypes.WinError(ctypes.get_last_error())
+        result.update(process_machine=process.value or native.value, native_machine=native.value)
+    return result
+
+
+def validate_runtime(runtime: dict) -> None:
+    if (runtime.get("platform") != "win32" or runtime.get("bits") != 64
+            or runtime.get("process_machine") != AMD64 or runtime.get("native_machine") != AMD64):
+        raise ValueError("metagen requires a 64-bit Windows AMD64 Python on a native AMD64 host")
+
+
+def validate_library(library: Path) -> None:
+    with library.open("rb") as stream:
+        dos = stream.read(64)
+        if len(dos) != 64 or dos[:2] != b"MZ":
+            raise ValueError("metagen libclang.dll requires a PE AMD64 DLL")
+        offset = struct.unpack_from("<I", dos, 60)[0]
+        size = library.stat().st_size
+        if offset < 64 or offset + 26 > size:
+            raise ValueError("metagen libclang.dll has an invalid PE header offset")
+        stream.seek(offset)
+        header = stream.read(26)
+        machine, sections = struct.unpack_from("<HH", header, 4)
+        optional_size, flags, magic = struct.unpack_from("<HHH", header, 20)
+        if (header[:4] != b"PE\0\0" or machine != AMD64 or magic != 0x20B
+                or flags & 0x2002 != 0x2002 or not 1 <= sections <= 96
+                or optional_size < 112 or offset + 24 + optional_size + sections * 40 > size):
+            raise ValueError("metagen libclang.dll requires a PE32+ AMD64 DLL")
 
 
 def digest(data: bytes) -> str:
@@ -120,14 +200,14 @@ def run_json(argv: list[str], *, cwd: Path) -> dict:
 
 
 def validate_paths(contract: dict, src: Path, runtime: dict) -> None:
-    if runtime.get("platform") != "win32" or runtime.get("bits") != 64:
-        raise ValueError("metagen requires a 64-bit Windows host Python")
+    validate_runtime(runtime)
     if contract["script"].resolve() != (src / "v8/tools/metagen/metagen.py").resolve():
         raise ValueError("metagen script is outside the source tree")
     allowed_libraries = [src / "third_party/llvm-build/Release+Asserts/bin/libclang.dll",
                          src / "third_party/llvm-libclang/bin/libclang.dll"]
     if not contract["library"].is_file() or contract["library"].resolve() not in [p.resolve() for p in allowed_libraries]:
         raise ValueError("metagen DLL is not the source toolchain library")
+    validate_library(contract["library"])
     if contract["resource"].resolve() != (src / "third_party/llvm-build/Release+Asserts/lib/clang/23").resolve():
         raise ValueError("metagen resource directory is not the source clang 23 toolchain")
     if not (contract["resource"] / "include/stddef.h").is_file():
@@ -206,6 +286,8 @@ def provision(src: Path, bindings: Path, *, download: bool) -> str:
 
 
 def probe(bindings: Path, library: Path, src: Path) -> dict:
+    validate_runtime(runtime_info())
+    validate_library(library)
     read_package(bindings / "clang")
     sys.path.insert(0, str(bindings))
     cindex = importlib.import_module("clang.cindex")
@@ -231,7 +313,7 @@ def probe(bindings: Path, library: Path, src: Path) -> dict:
 
 
 def configure(src: Path, out: Path, version: str) -> dict:
-    if version != CHROMIUM_VERSION:
+    if source_contract(src, out, version) is None:
         return {"status": "unchanged"}
     path = out / "args.gn"
     text = path.read_text(encoding="utf-8")
@@ -251,6 +333,7 @@ def configure(src: Path, out: Path, version: str) -> dict:
     library = src.resolve() / relative
     if not library.is_file():
         raise ValueError("restored source libclang DLL is missing")
+    validate_library(library)
     replacement = match[1] + '"' + library.as_posix() + '"' + match[3]
     path.write_text(text[:match.start()] + replacement + text[match.end():], encoding="utf-8")
     return {"status": "rebased", "library": str(library)}
@@ -258,22 +341,20 @@ def configure(src: Path, out: Path, version: str) -> dict:
 
 def install(src: Path, out: Path, ninja: Path, version: str, *, download: bool) -> dict:
     src, out = src.resolve(), out.resolve()
-    if version == "154.0.8037.97":
+    arch = source_contract(src, out, version)
+    if arch is None:
         return {"status": "not_required", "chromium_version": version}
-    if version != CHROMIUM_VERSION:
-        raise ValueError("unsupported Chromium metagen bindings pin")
     if not (src / "v8/tools/metagen/metagen.py").exists():
         raise ValueError("expected V8 metagen source is missing")
     deps = (src / "DEPS").read_text(encoding="utf-8")
-    if re.findall(r"['\"]v8_revision['\"]\s*:\s*['\"]([0-9a-f]{40})['\"]", deps) != [V8_REVISION]:
+    if re.findall(r"['\"]v8_revision['\"]\s*:\s*['\"]([0-9a-f]{40})['\"]", deps) != [PINS[version]["v8_revision"]]:
         raise ValueError("unexpected exact DEPS V8 revision")
     commands = subprocess.run([str(ninja), "-C", str(out), "-t", "commands", TARGET],
                               check=True, text=True, capture_output=True, timeout=120).stdout
     contract = action_contract(commands, out)
     runtime = run_json([contract["python"], "-I", "-c",
-                        "import json,sys,sysconfig,struct; print(json.dumps(dict(platform=sys.platform, "
-                        "bits=struct.calcsize('P')*8, site_packages=list(set(sysconfig.get_path(k) "
-                        "for k in ('purelib','platlib'))))))"], cwd=out)
+                        "import json,runpy; print(json.dumps(runpy.run_path("
+                        + repr(str(Path(__file__).resolve())) + ")['runtime_info']()))"], cwd=out)
     validate_paths(contract, src, runtime)
     library_hash = digest(contract["library"].read_bytes())
     origin = provision(src, contract["bindings"], download=download)
@@ -282,7 +363,7 @@ def install(src: Path, out: Path, ninja: Path, version: str, *, download: bool) 
                        "--src", str(src)], cwd=out)
     if digest(contract["library"].read_bytes()) != library_hash:
         raise ValueError("source libclang DLL changed during bindings provisioning")
-    return dict(result, status="verified", origin=origin, llvm_commit=LLVM_COMMIT,
+    return dict(result, status="verified", origin=origin, target_cpu=arch, llvm_commit=LLVM_COMMIT,
                 bindings_sha256=HASHES, library_sha256=library_hash)
 
 

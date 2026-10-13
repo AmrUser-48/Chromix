@@ -34,7 +34,8 @@ def target_files(repo):
         fixtures.put(repo, name, (ROOT / name).read_bytes())
 
 
-def test_exact_donor_identity_keys_and_isolated_target(tmp_path):
+@pytest.mark.parametrize("selector_ref", [None, "543885d56bf9159d9d659ea4fc847f84e019ea74"])
+def test_exact_donor_identity_keys_and_isolated_target(tmp_path, selector_ref):
     previous = tmp_path / "previous"
     subprocess.run(["git", "clone", "--shared", "--no-checkout", str(ROOT), str(previous)],
                    check=True, capture_output=True)
@@ -42,9 +43,14 @@ def test_exact_donor_identity_keys_and_isolated_target(tmp_path):
     repo = tmp_path / "target"
     shutil.copytree(previous, repo, ignore=shutil.ignore_patterns(".git"))
     target_files(repo)
+    if selector_ref:
+        fixtures.put(repo, SELECTOR, subprocess.run(
+            ["git", "-C", str(ROOT), "show", selector_ref + ":" + SELECTOR],
+            check=True, capture_output=True).stdout)
     old, old_patches = arp.patch_selection.select(previous, "linux")
     assert arp._sha(arp._json(old)) == migration.LINUX155_OLD_IDENTITY
-    assert arp._sha((repo / SELECTOR).read_bytes()) == migration.LINUX155_PNG_SELECTOR
+    assert arp._sha((repo / SELECTOR).read_bytes()) == (
+        migration.LINUX155_PNG_SELECTOR if selector_ref else migration.WINDOWS155_PNG_SELECTOR)
     assert arp.patch_selection.preparation_key(previous, "linux", "posix") == (
         "019d1bf9296d7e9b037bc5c34307ebc46cd1b1ba8f4cb31bdd2c80416d625cd5")
     assert arp.patch_selection.preparation_key(repo, "linux", "posix") != (

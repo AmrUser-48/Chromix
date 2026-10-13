@@ -43,7 +43,8 @@ def test_production_policy_accepts_exact_donor_without_executing_it(tmp_path):
         "019d1bf9296d7e9b037bc5c34307ebc46cd1b1ba8f4cb31bdd2c80416d625cd5")
     for ref, expected in ((migration.LINUX155_PNG_DONOR, migration.LINUX155_NEW_SELECTOR),
                           ("6bd75f297c714492164cbde4cdf2eba70f3cbb6b", migration.MACOS154_NEW_SELECTOR),
-                          (None, migration.LINUX155_PNG_SELECTOR)):
+                          ("543885d56bf9159d9d659ea4fc847f84e019ea74", migration.LINUX155_PNG_SELECTOR),
+                          (None, migration.WINDOWS155_PNG_SELECTOR)):
         raw = ((ROOT / SELECTOR).read_bytes() if ref is None else subprocess.run(
             ["git", "-C", str(ROOT), "show", ref + ":" + SELECTOR],
             check=True, capture_output=True).stdout)

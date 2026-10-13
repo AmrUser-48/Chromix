@@ -33,7 +33,8 @@ def target_files(repo):
         fixtures.put(repo, name, (ROOT / name).read_bytes())
 
 
-def test_exact_donor_identity_keys_and_isolated_target(tmp_path):
+@pytest.mark.parametrize("selector_ref", [None, "543885d56bf9159d9d659ea4fc847f84e019ea74"])
+def test_exact_donor_identity_keys_and_isolated_target(tmp_path, selector_ref):
     previous = tmp_path / "previous"
     subprocess.run(["git", "clone", "--shared", "--no-checkout", str(ROOT), str(previous)],
                    check=True, capture_output=True)
@@ -41,9 +42,14 @@ def test_exact_donor_identity_keys_and_isolated_target(tmp_path):
     repo = tmp_path / "target"
     shutil.copytree(previous, repo, ignore=shutil.ignore_patterns(".git"))
     target_files(repo)
+    if selector_ref:
+        fixtures.put(repo, SELECTOR, subprocess.run(
+            ["git", "-C", str(ROOT), "show", selector_ref + ":" + SELECTOR],
+            check=True, capture_output=True).stdout)
     old, old_patches = arp.patch_selection.select(previous, "linux")
     assert arp._sha(arp._json(old)) == migration.LINUX155_PNG_OLD_IDENTITY
-    assert arp._sha((repo / SELECTOR).read_bytes()) == migration.LINUX155_PNG_SELECTOR
+    assert arp._sha((repo / SELECTOR).read_bytes()) == (
+        migration.LINUX155_PNG_SELECTOR if selector_ref else migration.WINDOWS155_PNG_SELECTOR)
     for style, key in (
         ("posix", "d3aec8b6637d7582f4ce572533d9ca5ced7c6c5f77f897c56e12e23dd20985ee"),
         ("windows", "25a7ada3eb59ef78d7dab0e16a1ee1c690531b9159a640bb16d5c3f9683b853e"),
@@ -303,3 +309,40 @@ def test_compiled_checkpoint_still_authenticates_repository_workflow_path(change
         report = validate()
         assert report["head_sha"] == DONOR
         assert report["artifacts"][0]["size_in_bytes"] == 5009170838
+
+
+def test_windows_selector_keeps_exact_posix_identities_and_historical_hashes(tmp_path):
+    import io
+    import tarfile
+    from tools import patch_selection
+
+    baseline = tmp_path / "pre-windows"
+    baseline.mkdir()
+    archive = subprocess.run(["git", "-C", str(ROOT), "archive",
+        "543885d56bf9159d9d659ea4fc847f84e019ea74"], check=True, capture_output=True).stdout
+    with tarfile.open(fileobj=io.BytesIO(archive)) as tree:
+        tree.extractall(baseline, filter="data")
+    assert arp._sha((baseline / SELECTOR).read_bytes()) == migration.LINUX155_PNG_SELECTOR
+    expected = {
+        "linux": (226, "446ae87099e7804ab8e7d975ade6b1e75c1080e78b84c0bcf58a2f786b373586"),
+        "macos": (225, "82c050b84d7d1cd0cd1424d7afdab3b566d403dd10dbd2ee40054872ae9ca69e"),
+    }
+    for platform, (count, identity) in expected.items():
+        old = patch_selection.select(baseline, platform)
+        current = patch_selection.select(ROOT, platform)
+        assert current == old
+        assert len(current[1]) == count
+        assert arp._sha(arp._json(current[0])) == identity
+    assert migration.LINUX155_PNG_SUPPORTING_SELECTORS == (
+        "7e59710e98b88556c19d5cf53563eee0dc4f94b2cdabed0051adcad68fe11542",
+        "4c2392a036f0e3c754ed887b41e67e624d80350f53d0059f7308205d05ca5185",
+    )
+    assert migration.LINUX155_SUPPORTING_SELECTORS == (
+        "9a706c5ec4aca59a1a06154fe7c592746f32c2c28571ee33a7c5d55fd523bb26",
+        "3eb4381914588389feec36640cfd70c7838c38d9da2ba0ab34c3e53dfa3281f3",
+        *migration.LINUX155_PNG_SUPPORTING_SELECTORS,
+    )
+    assert migration.MACOS154_SUPPORTING_SELECTORS == (
+        "3eb4381914588389feec36640cfd70c7838c38d9da2ba0ab34c3e53dfa3281f3",
+        *migration.LINUX155_PNG_SUPPORTING_SELECTORS,
+    )

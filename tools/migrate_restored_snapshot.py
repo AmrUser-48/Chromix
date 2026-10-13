@@ -49,8 +49,14 @@ LINUX155_OLD_SELECTOR = "87d06a9ed672af8bfe1065d43d69140c142d1770287d1b82fb9c0e5
 LINUX155_NEW_SELECTOR = "9a706c5ec4aca59a1a06154fe7c592746f32c2c28571ee33a7c5d55fd523bb26"
 MACOS154_NEW_SELECTOR = "3eb4381914588389feec36640cfd70c7838c38d9da2ba0ab34c3e53dfa3281f3"
 LINUX155_PNG_SELECTOR = "7e59710e98b88556c19d5cf53563eee0dc4f94b2cdabed0051adcad68fe11542"
-LINUX155_SUPPORTING_SELECTORS = (LINUX155_NEW_SELECTOR, MACOS154_NEW_SELECTOR, LINUX155_PNG_SELECTOR)
-MACOS154_SUPPORTING_SELECTORS = (MACOS154_NEW_SELECTOR, LINUX155_PNG_SELECTOR)
+WINDOWS155_PNG_SELECTOR = "4c2392a036f0e3c754ed887b41e67e624d80350f53d0059f7308205d05ca5185"
+LINUX155_SUPPORTING_SELECTORS = (
+    LINUX155_NEW_SELECTOR, MACOS154_NEW_SELECTOR, LINUX155_PNG_SELECTOR, WINDOWS155_PNG_SELECTOR,
+)
+MACOS154_SUPPORTING_SELECTORS = (
+    MACOS154_NEW_SELECTOR, LINUX155_PNG_SELECTOR, WINDOWS155_PNG_SELECTOR,
+)
+LINUX155_PNG_SUPPORTING_SELECTORS = (LINUX155_PNG_SELECTOR, WINDOWS155_PNG_SELECTOR)
 LINUX155_MANIFEST = "build/patch-additions-linux155.json"
 LINUX155_MANIFEST_SHA256 = "28fb67c9207bfe6e9b8314a0e56856c5136cc6a98461ad826f9ad7e8c4fbe38f"
 LINUX155_PATCH = "patches/chromium155-linux/0225-managed-profile-controller-link.patch"
@@ -160,7 +166,7 @@ def _linux155_png_selector_transition(previous: Path, repo: Path, platform: str,
         raise arp.ApplyError("Linux155 PNG selector transition requires linux x64")
     selector = "tools/patch_selection.py"
     if (arp._sha(arp._read(previous, selector)) != LINUX155_NEW_SELECTOR
-            or arp._sha(arp._read(repo, selector)) != LINUX155_PNG_SELECTOR):
+            or arp._sha(arp._read(repo, selector)) not in LINUX155_PNG_SUPPORTING_SELECTORS):
         raise arp.ApplyError("Linux155 PNG migration selector hash mismatch")
     if _donor_git(previous, repo, "rev-parse", "HEAD").decode().strip() != LINUX155_PNG_DONOR:
         raise arp.ApplyError("Linux155 PNG migration requires exact compiled donor HEAD")
@@ -207,7 +213,7 @@ def _linux155_arm64_selector_transition(previous: Path, repo: Path, platform: st
         raise arp.ApplyError("Linux155 ARM64 selector transition requires linux arm64")
     selector = "tools/patch_selection.py"
     if (arp._sha(arp._read(previous, selector)) != LINUX155_OLD_SELECTOR
-            or arp._sha(arp._read(repo, selector)) != LINUX155_PNG_SELECTOR):
+            or arp._sha(arp._read(repo, selector)) not in LINUX155_PNG_SUPPORTING_SELECTORS):
         raise arp.ApplyError("Linux155 ARM64 migration selector hash mismatch")
     if _donor_git(previous, repo, "rev-parse", "HEAD").decode().strip() != LINUX155_DONOR:
         raise arp.ApplyError("Linux155 ARM64 migration requires exact stage4 donor HEAD")

@@ -37,13 +37,19 @@ def test_production_policy_accepts_exact_donor_without_executing_it(tmp_path, ar
         fixtures.put(repo, name, (ROOT / name).read_bytes())
     old = arp.patch_selection.select(previous, "macos")
     assert arp._sha(arp._json(old[0])) == migration.MACOS154_OLD_IDENTITY
-    assert arp._sha((ROOT / SELECTOR).read_bytes()) == migration.LINUX155_PNG_SELECTOR
+    assert arp._sha((ROOT / SELECTOR).read_bytes()) == migration.WINDOWS155_PNG_SELECTOR
     assert not (repo / arp.patch_selection.LINUX155_ADDITIONS_MANIFEST).exists()
     historical_selector = subprocess.run(
         ["git", "-C", str(ROOT), "show", "6bd75f297c714492164cbde4cdf2eba70f3cbb6b:" + SELECTOR],
         check=True, capture_output=True).stdout
     assert arp._sha(historical_selector) == migration.MACOS154_NEW_SELECTOR
     fixtures.put(repo, SELECTOR, historical_selector)
+    migration._same_inputs(previous, repo, "macos", arch)
+    png_selector = subprocess.run(
+        ["git", "-C", str(ROOT), "show", "543885d56bf9159d9d659ea4fc847f84e019ea74:" + SELECTOR],
+        check=True, capture_output=True).stdout
+    assert arp._sha(png_selector) == migration.LINUX155_PNG_SELECTOR
+    fixtures.put(repo, SELECTOR, png_selector)
     migration._same_inputs(previous, repo, "macos", arch)
     fixtures.put(repo, SELECTOR, (ROOT / SELECTOR).read_bytes())
     migration._same_inputs(previous, repo, "macos", arch)

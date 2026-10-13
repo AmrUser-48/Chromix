@@ -98,6 +98,27 @@ WINDOWS155_RECORDS = (
         "before_sha256": WINDOWS155_ORIGINAL_SHA256,
         "after_sha256": WINDOWS155_REPAIRED_SHA256,
     }),
+    # ARM64 shares the 155 tag, Windows overlay and core domain rules with x64.
+    # These are source-reconstructed hashes, not extracted artifact bytes;
+    # strict repair rejects any restored script that differs from these pins.
+    MappingProxyType({
+        "identity": MappingProxyType({
+            "chromium_version": "155.0.8059.39",
+            "ungoogled_commit": "ffeb45a2bb88bc56a1dfed31410aeb10e9efcd5a",
+            "head_sha": "989b4382364baaddb8b3180e1eb1030ca96a7273",
+            "platform": "windows", "arch": "arm64",
+            "repository": "ungoogled-software/ungoogled-chromium-windows",
+            "repository_id": 177210827,
+            "head_branch": "155.0.8059.39-1.1", "event": "push",
+            "workflow_path": ".github/workflows/build-arm.yml",
+            "run_id": 37831345827,
+            "artifact_id": 11702070420, "artifact_name": "build-artifact-arm",
+            "artifact_digest": "sha256:08244eb203c3fc6551c761f70bcb4744ec55735c4e1d1a6f51c67a77c12d4f50",
+            "artifact_size_in_bytes": 16004417072,
+        }),
+        "before_sha256": WINDOWS155_ORIGINAL_SHA256,
+        "after_sha256": WINDOWS155_REPAIRED_SHA256,
+    }),
 )
 BEFORE = b"""            open(file_path, 'wb').close()
         shutil.copy(file_path, outdir)

@@ -264,3 +264,18 @@ def test_optional_independent_155_full_stack(tmp_path, repo155, substituted):
     assert report["status"] == "verified" and report["patch_count"] == 224
     assert report["domain_substituted"] == substituted
     assert report["identity"]["selection"]["core_commit"] == CORE
+
+
+@pytest.mark.parametrize("additions,expected", [(False, 224), (True, 225)])
+def test_windows155_manifest_presence_distinguishes_historical_and_current(tmp_path, additions, expected):
+    repo = clone_repo(tmp_path, additions=False)
+    if additions:
+        manifest = selection.WINDOWS155_ADDITIONS_MANIFEST
+        shutil.copy2(ROOT / manifest, repo / manifest)
+        shutil.copytree(ROOT / selection.WINDOWS155_ADDITIONS_ROOT,
+                        repo / selection.WINDOWS155_ADDITIONS_ROOT)
+    identity, patches = selection.select(repo, "windows")
+    assert len(patches) == expected
+    assert ("additions" in identity["selection"]) == additions
+    if additions:
+        assert patches[-1][0] == "patches/chromium155-windows/0227-opaque-png-export-consistency.patch"

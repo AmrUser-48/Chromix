@@ -1,4 +1,4 @@
-"""Windows155 x64 byte identity, once-only invalidation, and154 ARM64 coexistence."""
+"""Windows155 dual-arch pins, controlled MIDL runtime, and once-only invalidation."""
 import hashlib
 import json
 from pathlib import Path
@@ -20,6 +20,14 @@ IDENTITY = {
     "artifact_id": 11670281902, "artifact_name": "build-artifact",
     "artifact_digest": "sha256:4648e4426093106521986dc5a4dc66b47d861250710b3391f5ed7cf73d11db5c",
     "artifact_size_in_bytes": 15705197543,
+}
+
+ARM_IDENTITY = {
+    **IDENTITY, "arch": "arm64",
+    "workflow_path": ".github/workflows/build-arm.yml", "run_id": 37831345827,
+    "artifact_id": 11702070420, "artifact_name": "build-artifact-arm",
+    "artifact_digest": "sha256:08244eb203c3fc6551c761f70bcb4744ec55735c4e1d1a6f51c67a77c12d4f50",
+    "artifact_size_in_bytes": 16004417072,
 }
 
 
@@ -63,11 +71,13 @@ class Windows155MidlTest(unittest.TestCase):
         self.assertEqual(json.loads((self.src / repair.RECORD).read_text())["identity"], IDENTITY)
 
     def test_all_identity_fields_and_types_fail_before_deletion(self):
-        for key, value in IDENTITY.items():
-            bad = "155.0.8059.40" if key == "chromium_version" else "unknown"
-            for alternate in ((bad, float(value)) if type(value) is int else (bad,)):
-                with self.subTest(key=key), self.assertRaisesRegex(ValueError, "identity"):
-                    self.apply(dict(IDENTITY, **{key: alternate}))
+        for identity in (IDENTITY, ARM_IDENTITY):
+            for key, value in identity.items():
+                bad = "155.0.8059.40" if key == "chromium_version" else "unknown"
+                for alternate in ((bad, float(value)) if type(value) is int else (bad,)):
+                    with self.subTest(arch=identity["arch"], key=key), self.assertRaisesRegex(
+                            ValueError, "identity"):
+                        self.apply(dict(identity, **{key: alternate}), arch=identity["arch"])
         for identity in ({"chromium_version": "155.0.8059.39"}, dict(IDENTITY, extra=True),
                          dict(IDENTITY, arch="arm64")):
             with self.assertRaisesRegex(ValueError, "identity"):
@@ -81,8 +91,9 @@ class Windows155MidlTest(unittest.TestCase):
         for payload in (b"", self.original + b"# unknown", self.original.replace(b"\n", b"\r\n"),
                         self.original.replace(repair.BEFORE, repair.AFTER)):
             self.script.write_bytes(payload)
-            with self.assertRaises(ValueError):
-                self.apply()
+            for identity in (IDENTITY, ARM_IDENTITY):
+                with self.subTest(arch=identity["arch"]), self.assertRaises(ValueError):
+                    self.apply(identity, arch=identity["arch"])
             self.assertEqual(self.output.read_bytes(), b"stale")
             self.assertEqual(self.script.read_bytes(), payload)
 
@@ -100,6 +111,52 @@ class Windows155MidlTest(unittest.TestCase):
             self.apply()
         self.assertEqual(self.output.read_bytes(), b"regenerated")
 
+    def test_arm64_exact_restore_pin_repairs_once_without_touching_source(self):
+        from tools.fetch_upstream_cache import ROOT
+        from tools.restore_upstream_cache import identities
+
+        identity, _, _ = identities(ROOT, "windows", "arm64")
+        self.assertEqual(identity, ARM_IDENTITY)
+        self.assertEqual(len(repair.WINDOWS155_RECORDS), 2)
+        self.assertEqual(dict(repair.WINDOWS155_RECORDS[1]["identity"]), ARM_IDENTITY)
+        (self.out / "build.ninja").write_text(
+            previous.graph(["gen/midl/a.tlb"]).replace("x64", "arm64"))
+        source = self.src / "third_party/win_build_output/midl/arm64/source.tlb"
+        source.parent.mkdir(parents=True)
+        source.write_bytes(b"")
+        before = previous.snapshot(source)
+        first = self.apply(identity, arch="arm64")
+        self.assertEqual(first["status"], "repaired")
+        self.assertEqual(first["declared_outputs"], 1)
+        self.assertEqual(first["invalidated_outputs"], ["gen/midl/a.tlb"])
+        self.assertEqual(hashlib.sha256(self.script.read_bytes()).hexdigest(), repair.WINDOWS155_REPAIRED_SHA256)
+        self.output.write_bytes(b"regenerated")
+        second = self.apply(identity, arch="arm64")
+        self.assertEqual(second["status"], "verified")
+        self.assertEqual(second["invalidated_outputs"], [])
+        self.assertEqual(self.output.read_bytes(), b"regenerated")
+        self.assertEqual(previous.snapshot(source), before)
+        self.assertEqual(json.loads((self.src / repair.RECORD).read_text())["identity"], ARM_IDENTITY)
+        with self.assertRaisesRegex(ValueError, "invalidation record"):
+            self.apply()
+        self.assertEqual(self.output.read_bytes(), b"regenerated")
+
+    def test_arm64_rejects_mixed_x64_and_historical_donor_fields(self):
+        variants = [dict(ARM_IDENTITY, **{key: value}) for key, value in IDENTITY.items()
+                    if value != ARM_IDENTITY[key]]
+        variants += [dict(ARM_IDENTITY, **{key: value}) for key, value in previous.ARM_IDENTITY.items()
+                     if value != ARM_IDENTITY[key] and key != "chromium_version"]
+        variants += [dict(ARM_IDENTITY, extra=True),
+                     {key: value for key, value in ARM_IDENTITY.items() if key != "artifact_digest"}]
+        for identity in variants:
+            with self.subTest(identity=identity), self.assertRaisesRegex(ValueError, "identity"):
+                self.apply(identity, arch="arm64")
+        with self.assertRaisesRegex(ValueError, "identity"):
+            self.apply(ARM_IDENTITY, arch="x64")
+        self.assertEqual(self.script.read_bytes(), self.original)
+        self.assertEqual(self.output.read_bytes(), b"stale")
+        self.assertFalse((self.src / repair.RECORD).exists())
+
     def test_existing154_arm64_and_nonwindows_remain_separate(self):
         self.assertEqual(dict(repair.WINDOWS154_RECORDS[1]["identity"]), previous.ARM_IDENTITY)
         for platform in ("linux", "macos", "off"):
@@ -107,6 +164,35 @@ class Windows155MidlTest(unittest.TestCase):
         result = repair.apply(self.src, "windows", "arm64", previous.ARM_IDENTITY)
         self.assertEqual(result["status"], "repaired")
         self.assertEqual(json.loads((self.src / repair.RECORD).read_text())["identity"], previous.ARM_IDENTITY)
+
+
+class Windows155Arm64MidlFunctionsTest(previous.Windows154MidlFunctionsTest):
+    def setUp(self):
+        super().setUp()
+        self.midl = previous.load_functions(repair.transform155(self.original))
+        arm = self.source / "arm64"
+        self.source_arch.rename(arm)
+        self.source_arch = arm
+        self.tlb = arm / "example.tlb"
+
+    def invoke(self, **kwargs):
+        main = self.midl["main"]
+
+        def arm_main(environment, *args):
+            self.assertEqual(environment, "environment.x64")
+            self.assertEqual(args[-2:], ("/env", "x64"))
+            return main(str(self.env), *args[:-1], "arm64")
+
+        self.env = self.root / "environment.arm64"
+        self.env.write_bytes(b"PATH=fixture\0\0")
+        self.midl["main"] = arm_main
+        try:
+            result = super().invoke(**kwargs)
+        finally:
+            self.midl["main"] = main
+        for args, _ in self.native_calls:
+            self.assertEqual(args[args.index("/env") + 1], "arm64")
+        return result
 
 
 if __name__ == "__main__":

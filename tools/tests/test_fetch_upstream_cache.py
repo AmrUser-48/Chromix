@@ -332,10 +332,10 @@ class FetchUpstreamCacheTest(unittest.TestCase):
                 self.assertEqual(result["download_bytes"], 0)
                 self.assertEqual(client.mock_calls, [])
 
-    def test_checked_in_windows_arm64_is_unsupported_without_using_old_cache(self):
-        for run_id in (None, 37100793757, 37831345909):
+    def test_checked_in_windows_arm64_rejects_old_or_x64_run_without_using_old_cache(self):
+        for run_id in (37100793757, 37831345909):
             with self.subTest(run_id=run_id):
-                with self.assertRaisesRegex(cache.CacheMiss, "^unsupported_target$"):
+                with self.assertRaisesRegex(cache.CacheMiss, "^run_id_mismatch$"):
                     cache.load_manifest("windows", "arm64", run_id, root=cache.ROOT)
                 source = self.destination / "tree/src"
                 source.mkdir(parents=True)
@@ -350,7 +350,7 @@ class FetchUpstreamCacheTest(unittest.TestCase):
                 })
                 client = mock.Mock()
                 result = cache.fetch("windows", "arm64", self.destination, run_id, root=cache.ROOT, client=client)
-                self.assertEqual(result["reason"], "unsupported_target")
+                self.assertEqual(result["reason"], "run_id_mismatch")
                 self.assertEqual(result["status"], "miss")
                 self.assertEqual(result["download_bytes"], 0)
                 self.assertIsNone(result["source"])
@@ -376,6 +376,11 @@ class FetchUpstreamCacheTest(unittest.TestCase):
                 "id": 11670281902, "name": "build-artifact", "size_in_bytes": 15705197543,
                 "digest": "sha256:4648e4426093106521986dc5a4dc66b47d861250710b3391f5ed7cf73d11db5c",
                 "expires_at": "2026-10-14T12:44:25Z", "inner_archive": "artifacts.zip",
+            }, "arm64": {
+                "id": 11702070420, "name": "build-artifact-arm", "size_in_bytes": 16004417072,
+                "digest": "sha256:08244eb203c3fc6551c761f70bcb4744ec55735c4e1d1a6f51c67a77c12d4f50",
+                "expires_at": "2026-10-15T11:49:46Z", "inner_archive": "artifacts.zip",
+                "run_id": 37831345827, "workflow_path": ".github/workflows/build-arm.yml",
             }},
         })
         pin, identity = cache.load_manifest("windows", "x64", 37831345909, root=cache.ROOT)
@@ -388,9 +393,9 @@ class FetchUpstreamCacheTest(unittest.TestCase):
             "artifact_digest": source["artifacts"]["x64"]["digest"],
         })
         self.assert_metadata_provenance(pin, datetime(2026, 10, 11, tzinfo=timezone.utc))
-        for arch, run_id, reason in (("arm64", None, "unsupported_target"),
-                                     ("arm64", 37100793757, "unsupported_target"),
-                                     ("arm64", 37831345909, "unsupported_target"),
+        for arch, run_id, reason in (("arm64", 37100793757, "run_id_mismatch"),
+                                     ("arm64", 37831345909, "run_id_mismatch"),
+                                     ("x64", 37831345827, "run_id_mismatch"),
                                      ("x64", 37100793859, "run_id_mismatch"),
                                      ("x64", 37100793757, "run_id_mismatch"),
                                      ("x64", 34806882978, "run_id_mismatch"),
@@ -401,6 +406,62 @@ class FetchUpstreamCacheTest(unittest.TestCase):
                 self.assertEqual(result["reason"], reason)
                 self.assertEqual(result["download_bytes"], 0)
                 self.assertEqual(client.mock_calls, [])
+
+    def test_checked_in_windows155_arm64_exact_metadata_and_restore_identity(self):
+        from tools.restore_upstream_cache import identities
+        from tools.tests.test_windows155_midl import ARM_IDENTITY
+
+        pin, identity = cache.load_manifest("windows", "arm64", 37831345827, root=cache.ROOT)
+        self.assertEqual(identity["target"], "windows-arm64")
+        self.assertEqual(identity["run_id"], 37831345827)
+        self.assertEqual(identity["workflow_path"], ".github/workflows/build-arm.yml")
+        self.assertEqual(identity["artifact_id"], 11702070420)
+        restored, selected, _ = identities(cache.ROOT, "windows", "arm64")
+        self.assertEqual(restored, ARM_IDENTITY)
+        self.assertEqual(selected, pin)
+        for value in (pin, pin["artifact"], identity, restored):
+            self.assertFalse(cache.CHECKPOINT_FIELDS.intersection(value))
+        self.assert_metadata_provenance(pin, datetime(2026, 10, 13, tzinfo=timezone.utc))
+        x64, _ = cache.load_manifest("windows", "x64", root=cache.ROOT)
+        run, _ = metadata(pin)
+        _, artifact = metadata(x64)
+        with self.assertRaisesRegex(cache.CacheMiss, "artifact_mismatch"):
+            cache.validate_metadata(pin, run, artifact, NOW)
+
+    def test_checked_in_windows155_arm64_fetch_validates_before_download(self):
+        pin, _ = cache.load_manifest("windows", "arm64", root=cache.ROOT)
+        run, artifact = metadata(pin)
+        run["run_attempt"] = 1
+        artifact["expires_at"] = pin["artifact"]["expires_at"]
+        client = mock.Mock()
+        client.json.side_effect = (run, artifact)
+        client.download.side_effect = cache.CacheMiss("metadata_verified")
+        with mock.patch.object(cache, "datetime", wraps=datetime) as clock:
+            clock.now.return_value = datetime(2026, 10, 13, tzinfo=timezone.utc)
+            result = cache.fetch("windows", "arm64", self.destination, 37831345827,
+                                 root=cache.ROOT, client=client)
+        self.assertEqual(result["reason"], "metadata_verified")
+        self.assertEqual(result["download_bytes"], 0)
+        base = "/repos/ungoogled-software/ungoogled-chromium-windows/actions"
+        self.assertEqual(client.json.call_args_list, [
+            mock.call(base + "/runs/37831345827"),
+            mock.call(base + "/artifacts/11702070420"),
+        ])
+        client.download.assert_called_once()
+
+    def test_checked_in_windows155_arm64_rejects_unsuccessful_run_before_download(self):
+        pin, _ = cache.load_manifest("windows", "arm64", root=cache.ROOT)
+        for status, conclusion in (("queued", None), ("in_progress", None),
+                                   ("completed", "failure"), ("completed", "cancelled")):
+            run, artifact = metadata(pin)
+            run.update(status=status, conclusion=conclusion)
+            client = mock.Mock()
+            client.json.side_effect = (run, artifact)
+            result = cache.fetch("windows", "arm64", self.destination, root=cache.ROOT, client=client)
+            with self.subTest(status=status, conclusion=conclusion):
+                self.assertEqual(result["reason"], "untrusted_run")
+                self.assertEqual(result["download_bytes"], 0)
+                client.download.assert_not_called()
 
     def test_checked_in_macos_cache_matches_exact_two_arch_metadata(self):
         manifest = json.loads(cache.MANIFEST.read_text())
