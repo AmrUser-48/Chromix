@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import types
 
 import pytest
 
@@ -18,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import migrate_windows155_stage8_x64_snapshot as migration
 
 ROOT = Path(__file__).resolve().parents[2]
+HISTORICAL_TARGET = "c05c458c021f0f0964ec031c23395e1b86deb46f"
 pytestmark = pytest.mark.skipif(not shutil.which("git"), reason="host Git required")
 
 
@@ -45,6 +47,28 @@ def git(*args):
 def snapshot(root):
     return {p.relative_to(root).as_posix(): (p.read_bytes(), p.stat().st_mtime_ns)
             for p in root.rglob("*") if p.is_file()}
+
+
+@pytest.fixture
+def historical_selector(monkeypatch):
+    raw = git("-C", ROOT, "show", HISTORICAL_TARGET + ":tools/patch_selection.py")
+    assert migration.arp._sha(raw) == "7fe632aff6aed5ae36b9b3423a068f1d943a45cac7e5e7f07d4c2c4af4d3a09a"
+    selector = types.ModuleType("historical_windows155_stage8_selection")
+    exec(compile(raw, HISTORICAL_TARGET + ":tools/patch_selection.py", "exec"), selector.__dict__)
+    monkeypatch.setattr(migration, "selection", selector)
+    return selector
+
+
+def repository_archive(root, revision):
+    root.mkdir()
+    with tarfile.open(fileobj=io.BytesIO(git("-C", ROOT, "archive", revision))) as archive:
+        archive.extractall(root, filter="data")
+    return root
+
+
+@pytest.fixture
+def historical_target(tmp_path, historical_selector):
+    return repository_archive(tmp_path / "target", HISTORICAL_TARGET)
 
 
 class Fixture:
@@ -86,7 +110,7 @@ class Fixture:
                 put(self.src, name, "unchanged\n")
         gn = 'target_cpu = "x64"\ntarget_os = "win"\nchrome_pgo_phase = 2\n'
         put(self.src, "out/Default/args.gn", gn)
-        put(self.target, "tools/merge_gn_args.py", (ROOT / "tools/merge_gn_args.py").read_bytes())
+        put(self.target, "tools/merge_gn_args.py", git("-C", ROOT, "show", HISTORICAL_TARGET + ":tools/merge_gn_args.py"))
         for root, name in ((self.core, "flags.gn"), (self.tooling, "flags.windows.gn"),
                            (self.target, "build/args.windows.gn")):
             put(root, name, gn)
@@ -110,7 +134,7 @@ class Fixture:
         old_selected["series_sha256"] = migration.arp._sha((self.donor / "patches/series").read_bytes())
         self.selected["selection"]["additions"] = {
             "schema_version": 1, "kind": "windows155-compiled-png-recovery",
-            "manifest": {"path": migration.MANIFEST, "sha256": migration.selection.WINDOWS155_ADDITIONS_SHA256},
+            "manifest": {"path": migration.MANIFEST, "sha256": migration.MANIFEST_SHA256},
             "patches": [{"path": name, "sha256": migration.arp._sha(data)} for name, data in self.raw[225:]],
         }
         put(self.donor, "patches/series", (self.target / "patches/series").read_bytes())
@@ -139,7 +163,7 @@ class Fixture:
             "identity": previous_identity, "identity_sha256": migration.arp._sha(migration.arp._json(previous_identity)),
             "outputs": outputs}))
 
-        put(self.target, "tools/patch_selection.py", (ROOT / "tools/patch_selection.py").read_bytes())
+        put(self.target, "tools/patch_selection.py", git("-C", ROOT, "show", HISTORICAL_TARGET + ":tools/patch_selection.py"))
         put(self.src, "out/Default/chrome.dll", b"compiled DLL fixture")
         completion = json.loads((self.src / migration.arp.MARKER).read_bytes())
         prior = {"target_sha": migration.DONOR_SHA, "patch_count": 225,
@@ -336,24 +360,21 @@ def test_full_stack_donor_failure_is_not_replaced_with_append_only_check(tmp_pat
 
 
 def donor_archive(root):
-    root.mkdir()
-    with tarfile.open(fileobj=io.BytesIO(git("-C", ROOT, "archive", migration.DONOR_SHA))) as archive:
-        archive.extractall(root, filter="data")
-    return root
+    return repository_archive(root, migration.DONOR_SHA)
 
 
-def test_real_225_prefix_reconstruction_does_not_execute_donor_selector(tmp_path):
+def test_real_225_prefix_reconstruction_does_not_execute_donor_selector(tmp_path, historical_target):
     donor = donor_archive(tmp_path / "donor")
-    selected, raw = migration.selection.select(ROOT, "windows")
-    old, prefix = migration._donor_selection(donor, ROOT, selected, raw)
+    selected, raw = migration.selection.select(historical_target, "windows")
+    old, prefix = migration._donor_selection(donor, historical_target, selected, raw)
     assert len(prefix) == 225 and len(raw) == 230
     assert migration.arp._sha(migration.arp._json(old)) == migration.OLD_IDENTITY
-    assert raw[225:] == [(name, (ROOT / name).read_bytes()) for name in migration.ADDITIONS]
+    assert raw[225:] == [(name, (historical_target / name).read_bytes()) for name in migration.ADDITIONS]
     assert old["patches"] == selected["patches"][:225]
     assert old["patches"][-1]["path"] == "patches/chromium155-windows/0227-opaque-png-export-consistency.patch"
     put(donor, prefix[0][0], b"forged")
     with pytest.raises(RuntimeError, match="donor patch bytes changed"):
-        migration._donor_selection(donor, ROOT, selected, raw)
+        migration._donor_selection(donor, historical_target, selected, raw)
 
 
 @pytest.mark.parametrize("relative", ["out/Default/obj/cache.obj", "chrome/build/pgo_profiles/native.profdata"])
@@ -391,13 +412,11 @@ def test_expanded_target_inventory_retains_exact_donor_completion(tmp_path, monk
 
 
 @pytest.mark.parametrize("mutation", [None, "selector", "gn", "root-patch", "extra"])
-def test_repository_gate_allows_only_exact_selector_digest_replacement(tmp_path, monkeypatch, mutation):
+def test_repository_gate_allows_only_exact_selector_digest_replacement(tmp_path, monkeypatch, mutation, historical_selector):
     donor, target = tmp_path / "donor", tmp_path / "target"
-    for root, revision in ((donor, migration.DONOR_SHA), (target, "HEAD")):
+    for root, revision in ((donor, migration.DONOR_SHA), (target, HISTORICAL_TARGET)):
         git("clone", "--quiet", "--no-hardlinks", "--no-checkout", ROOT, root)
         git("-C", root, "checkout", "--quiet", "--detach", revision)
-    for name in (*migration.ADDITIONS, migration.MANIFEST, "tools/patch_selection.py"):
-        put(target, name, (ROOT / name).read_bytes())
     if mutation == "selector":
         path = target / "tools/patch_selection.py"
         path.write_bytes(path.read_bytes() + b"\n# unrelated change\n")
@@ -465,9 +484,9 @@ def test_partial_publication_never_commits_batch_receipts_or_readiness(tmp_path,
 
 
 @pytest.mark.parametrize("mutation", ["missing", "duplicate", "order", "prefix-order", "prefix-identity"])
-def test_integrated_selection_rejects_incomplete_or_reordered_batch(tmp_path, mutation):
+def test_integrated_selection_rejects_incomplete_or_reordered_batch(tmp_path, mutation, historical_target):
     donor = donor_archive(tmp_path / "donor")
-    selected, raw = migration.selection.select(ROOT, "windows")
+    selected, raw = migration.selection.select(historical_target, "windows")
     if mutation == "missing":
         raw.pop()
     elif mutation == "duplicate":
@@ -480,23 +499,21 @@ def test_integrated_selection_rejects_incomplete_or_reordered_batch(tmp_path, mu
     else:
         selected["patches"][0]["sha256"] = "0" * 64
     with pytest.raises(RuntimeError, match="230 target patches|historical 225-patch"):
-        migration._donor_selection(donor, ROOT, selected, raw)
+        migration._donor_selection(donor, historical_target, selected, raw)
 
 
 @pytest.mark.parametrize("index", range(5))
-def test_integrated_patch_bytes_cannot_change_even_with_preserved_selection(tmp_path, index):
+def test_integrated_patch_bytes_cannot_change_even_with_preserved_selection(tmp_path, index, historical_target):
     donor = donor_archive(tmp_path / "donor")
-    target = tmp_path / "target"
-    for name in (*migration.ADDITIONS, migration.MANIFEST, "patches/series"):
-        put(target, name, (ROOT / name).read_bytes())
-    selected, raw = migration.selection.select(ROOT, "windows")
+    target = historical_target
+    selected, raw = migration.selection.select(historical_target, "windows")
     name = migration.ADDITIONS[index]
     put(target, name, (target / name).read_bytes() + b"\n")
     with pytest.raises(RuntimeError, match="timezone patch hash mismatch"):
         migration._donor_selection(donor, target, selected, raw)
 
 
-def test_real_five_patch_batch_roundtrips_exact_155_source(tmp_path):
+def test_real_five_patch_batch_roundtrips_exact_155_source(tmp_path, historical_target):
     import gzip
     evidence = json.loads(gzip.decompress((Path(__file__).with_name("fixtures") /
         "windows155_timezone_sources.json.gz").read_bytes()))
@@ -507,13 +524,13 @@ def test_real_five_patch_batch_roundtrips_exact_155_source(tmp_path):
         put(stage, name, raw)
     program = shutil.which("git")
     for number in (5, 7, 19):
-        path = next((ROOT / "patches").glob(f"{number:04d}-*.patch"))
+        path = next((historical_target / "patches").glob(f"{number:04d}-*.patch"))
         data, entries = migration.arp.transform_patch(path.read_bytes(), set(), [])
         migration._apply(stage, [(path.name, data, entries)], program)
     before = migration._bytes(stage, migration.SOURCES)
     patches = []
     for name, digest, source in migration.PATCH_CONTRACT:
-        raw = (ROOT / name).read_bytes()
+        raw = (historical_target / name).read_bytes()
         assert migration.arp._sha(raw) == digest
         data, entries = migration.arp.transform_patch(raw, set(), [])
         assert entries == [(source, "modify", None)]
@@ -525,9 +542,9 @@ def test_real_five_patch_batch_roundtrips_exact_155_source(tmp_path):
     assert migration._bytes(stage, migration.SOURCES) == before
 
 @pytest.mark.parametrize("field", ["series", "last-patch", "manifest", "additions"])
-def test_integrated_target_identity_cannot_drift_from_batch(tmp_path, field):
+def test_integrated_target_identity_cannot_drift_from_batch(tmp_path, field, historical_target):
     donor = donor_archive(tmp_path / "donor")
-    selected, raw = migration.selection.select(ROOT, "windows")
+    selected, raw = migration.selection.select(historical_target, "windows")
     if field == "series":
         selected["series_sha256"] = "0" * 64
     elif field == "last-patch":
@@ -537,4 +554,4 @@ def test_integrated_target_identity_cannot_drift_from_batch(tmp_path, field):
     else:
         selected["selection"]["additions"]["patches"].pop()
     with pytest.raises(RuntimeError, match="exact five-patch append identity"):
-        migration._donor_selection(donor, ROOT, selected, raw)
+        migration._donor_selection(donor, historical_target, selected, raw)
