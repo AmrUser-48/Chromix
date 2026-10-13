@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import types
 
 import pytest
 
@@ -19,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import migrate_windows155_x64_snapshot as migration
 
 ROOT = Path(__file__).resolve().parents[2]
+HISTORICAL_TARGET = "b8821cd2f782ca4da9b998b437fc3acb09cb3fea"
 pytestmark = pytest.mark.skipif(not shutil.which("git"), reason="host Git required")
 
 
@@ -48,22 +50,32 @@ def snapshot(root):
             for p in root.rglob("*") if p.is_file()}
 
 
-def donor_archive(root):
+@pytest.fixture(scope="module")
+def historical_selector():
+    raw = git("-C", ROOT, "show", HISTORICAL_TARGET + ":tools/patch_selection.py")
+    assert migration.arp._sha(raw) == migration.NEW_SELECTOR
+    selector = types.ModuleType("historical_windows155_selection")
+    exec(compile(raw, HISTORICAL_TARGET + ":tools/patch_selection.py", "exec"), selector.__dict__)
+    return selector
+
+
+@pytest.fixture(autouse=True)
+def use_historical_selector(monkeypatch, historical_selector):
+    # Stage7 uses the authenticated 225-patch target, not the current stage8 selector.
+    monkeypatch.setattr(migration, "selection", historical_selector)
+    monkeypatch.setattr(migration.arp, "patch_selection", historical_selector)
+
+
+def repository_archive(root, revision):
     root.mkdir(parents=True)
-    with tarfile.open(fileobj=io.BytesIO(git("-C", ROOT, "archive", migration.DONOR_SHA))) as archive:
+    with tarfile.open(fileobj=io.BytesIO(git("-C", ROOT, "archive", revision))) as archive:
         archive.extractall(root, filter="data")
     return root
 
 
-def target_inputs(root):
-    for name in (migration.PATCH, migration.MANIFEST, "tools/patch_selection.py"):
-        put(root, name, (ROOT / name).read_bytes())
-    return root
-
-
 def historical_selection(tmp_path):
-    donor = donor_archive(tmp_path / "donor")
-    target = target_inputs(donor_archive(tmp_path / "target"))
+    donor = repository_archive(tmp_path / "donor", migration.DONOR_SHA)
+    target = repository_archive(tmp_path / "target", HISTORICAL_TARGET)
     assert migration.arp._sha((donor / "tools/patch_selection.py").read_bytes()) == migration.OLD_SELECTOR
     return donor, target
 
@@ -79,7 +91,13 @@ def test_real_pinned_224_prefix_and_single_png_append(tmp_path):
         "225dd1606daeaecb234598db5e5dc4c20b4665823d4cc3cf0105cba6436716bd")
     assert migration._key(target, selected, raw).rsplit("|", 1)[1] == (
         migration.selection.preparation_key(target, "windows", "windows"))
-    assert migration.arp._sha((ROOT / "tools/patch_selection.py").read_bytes()) == migration.NEW_SELECTOR
+    assert len(raw) == len(selected["patches"]) == 225
+    assert raw[-1][0] == migration.PATCH
+    assert migration.arp._sha(migration.arp._json(selected)) == (
+        "0474128cc29677a220c1138f6ea45e77b798a81e657a14c49fcdb242fe014725")
+    assert migration.selection.preparation_key(target, "windows", "windows") == (
+        "8bb13f960d706837d90bbedd76cc4144430ef8c518ba7fdf34694792b2881667")
+    assert migration.arp._sha((target / "tools/patch_selection.py").read_bytes()) == migration.NEW_SELECTOR
     assert migration.arp._sha((target / migration.PATCH).read_bytes()) == migration.PATCH_SHA256
     for platform in ("linux", "macos"):
         assert migration.selection.select(target, platform) == migration.selection.select(donor, platform)
@@ -331,7 +349,7 @@ def test_receipt_relocation_is_read_only(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize("mutation", ["manifest", "missing-manifest", "patch", "missing-patch", "extra", "symlink"])
 def test_windows_additions_fail_closed_and_do_not_affect_other_platforms(tmp_path, mutation):
-    repo = target_inputs(donor_archive(tmp_path / "target"))
+    repo = repository_archive(tmp_path / "target", HISTORICAL_TARGET)
     others = {p: migration.selection.select(repo, p) for p in ("linux", "macos")}
     manifest, patch_path = repo / migration.MANIFEST, repo / migration.PATCH
     if mutation == "manifest":
@@ -362,7 +380,7 @@ def test_real_png_addition_git_roundtrip_on_pinned_source(tmp_path):
     assert migration.arp._sha(data["before"]["text"].encode()) == BEFORE
     stage = tmp_path / "src"
     put(stage, migration.SOURCE, data["before"]["text"])
-    raw = (ROOT / migration.PATCH).read_bytes()
+    raw = git("-C", ROOT, "show", HISTORICAL_TARGET + ":" + migration.PATCH)
     transformed, entries = migration.arp.transform_patch(raw, set(), [])
     patches = [(migration.PATCH, transformed, entries)]
     migration._apply(stage, patches, shutil.which("git"))
@@ -515,23 +533,19 @@ def test_native_gn_production_helpers_and_order_are_bound_to_exact_donor():
     "build/patch-additions-linux155.json", "patches/chromium155-linux/unreviewed.patch"])
 def test_repository_gate_authenticates_real_donor_without_committing(tmp_path, monkeypatch, unexpected):
     donor, target = tmp_path / "donor", tmp_path / "target"
-    for root, revision in ((donor, migration.DONOR_SHA), (target, migration.TARGET_BASE_SHA)):
+    for root, revision in ((donor, migration.DONOR_SHA), (target, HISTORICAL_TARGET)):
         git("clone", "--quiet", "--no-hardlinks", "--no-checkout", ROOT, root)
         git("-C", root, "checkout", "--quiet", "--detach", revision)
     real_tree = migration.safe._tree
     head, tree = real_tree(shutil.which("git"), target)
-    for name in (migration.PATCH, migration.MANIFEST, "tools/patch_selection.py"):
-        raw = (ROOT / name).read_bytes()
-        put(target, name, raw)
-        tree[name] = ("100644", "blob", hashlib.sha1(f"blob {len(raw)}\0".encode() + raw).hexdigest())
-    # Emulate only the future committed tree; real tracked bytes and all donor objects are verified.
-    monkeypatch.setattr(migration.safe, "_tree", lambda program, root, expected=None:
-        (head, tree) if root == target else real_tree(program, root, expected))
     monkeypatch.setattr(migration.safe, "WINDOWS", True)
     old, new = migration._repository_inputs(shutil.which("git"), donor, target)
-    assert old[0] == migration.DONOR_SHA and new[0] == head
+    assert old[0] == migration.DONOR_SHA and new[0] == head == HISTORICAL_TARGET
     assert migration.TARGET_BASE_SHA == migration.DONOR_SHA
     if unexpected:
+        # Model an unapproved committed input while retaining the real donor proof.
+        monkeypatch.setattr(migration.safe, "_tree", lambda program, root, expected=None:
+            (head, tree) if root == target else real_tree(program, root, expected))
         data = b"unapproved preparation input\n"
         put(target, unexpected, data)
         tree[unexpected] = ("100644", "blob", hashlib.sha1(f"blob {len(data)}\0".encode() + data).hexdigest())

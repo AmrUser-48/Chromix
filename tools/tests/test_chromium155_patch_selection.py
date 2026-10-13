@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from collections import Counter
+import io
 import json
 import os
 from pathlib import Path
@@ -266,7 +267,7 @@ def test_optional_independent_155_full_stack(tmp_path, repo155, substituted):
     assert report["identity"]["selection"]["core_commit"] == CORE
 
 
-@pytest.mark.parametrize("additions,expected", [(False, 224), (True, 225)])
+@pytest.mark.parametrize("additions,expected", [(False, 224), (True, 230)])
 def test_windows155_manifest_presence_distinguishes_historical_and_current(tmp_path, additions, expected):
     repo = clone_repo(tmp_path, additions=False)
     if additions:
@@ -278,4 +279,40 @@ def test_windows155_manifest_presence_distinguishes_historical_and_current(tmp_p
     assert len(patches) == expected
     assert ("additions" in identity["selection"]) == additions
     if additions:
-        assert patches[-1][0] == "patches/chromium155-windows/0227-opaque-png-export-consistency.patch"
+        assert patches[224][0] == "patches/chromium155-windows/0227-opaque-png-export-consistency.patch"
+        assert patches[-1][0] == "patches/chromium155-windows/0232-renderer-launch-timezone-install.patch"
+        manifest = json.loads((repo / selection.WINDOWS155_ADDITIONS_MANIFEST).read_bytes())
+        assert identity["patches"][224:] == identity["selection"]["additions"]["patches"] == manifest["patches"]
+
+
+@pytest.mark.skipif(not shutil.which("git"), reason="host Git required")
+def test_windows155_historical_225_selection_identity(tmp_path):
+    revision = "b8821cd2f782ca4da9b998b437fc3acb09cb3fea"
+    repo = tmp_path / "historical"
+    repo.mkdir()
+    raw = subprocess.run([shutil.which("git"), "-C", str(ROOT), "archive", revision],
+                         check=True, capture_output=True).stdout
+    with tarfile.open(fileobj=io.BytesIO(raw)) as archive:
+        archive.extractall(repo, filter="data")
+    selector = repo / "tools/patch_selection.py"
+    assert selection.digest(selector.read_bytes()) == (
+        "4c2392a036f0e3c754ed887b41e67e624d80350f53d0059f7308205d05ca5185")
+    command = [sys.executable, str(selector), "--repo", str(repo), "--platform", "windows"]
+    identity = json.loads(subprocess.run([*command, "--json"], check=True, capture_output=True).stdout)
+    assert len(identity["patches"]) == 225
+    assert selection.digest(arp._json(identity)) == (
+        "0474128cc29677a220c1138f6ea45e77b798a81e657a14c49fcdb242fe014725")
+    manifest_path = selection.WINDOWS155_ADDITIONS_MANIFEST
+    manifest = json.loads((repo / manifest_path).read_bytes())
+    assert identity["selection"]["additions"] == {
+        "schema_version": 1, "kind": "windows155-compiled-png-recovery",
+        "manifest": {"path": manifest_path, "sha256":
+                     "7563d9ba3ab70750c5f4828fbeb346f1a38efce6589a10083ccfef7fef467fc1"},
+        "patches": manifest["patches"],
+    }
+    assert identity["patches"][224:] == manifest["patches"] == [{
+        "path": "patches/chromium155-windows/0227-opaque-png-export-consistency.patch",
+        "sha256": "4c048a50930c3541a3bb9e4442ad7f18e94c04ebccf86c0cfbfc286b15a70751",
+    }]
+    key = subprocess.run([*command, "--key", "windows"], check=True, capture_output=True, text=True).stdout.strip()
+    assert key == "8bb13f960d706837d90bbedd76cc4144430ef8c518ba7fdf34694792b2881667"
