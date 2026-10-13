@@ -5,13 +5,14 @@ import gzip
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
 
 import pytest
 
-from test_fingerprint_features import block
+from test_fingerprint_features import added, block
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = Path(__file__).with_name("fixtures")
@@ -21,11 +22,13 @@ PATCHES = tuple("patches/chromium155-windows/" + name for name in (
     "0230-blink-default-timezone-api.patch",
     "0231-blink-default-timezone-bridge.patch",
     "0232-renderer-launch-timezone-install.patch",
+    "0233-renderer-timezone-webstring-api.patch",
 ))
 CONTROLLER = "third_party/blink/renderer/core/timezone/timezone_controller"
 RENDERER = "content/renderer/render_thread_impl.cc"
 BRIDGE = "third_party/blink/renderer/controller/blink_initializer.cc"
 PUBLIC = "third_party/blink/public/web/blink.h"
+WEB_STRING = "third_party/blink/public/platform/web_string.h"
 EVIDENCE = json.loads(gzip.decompress(
     (FIXTURES / "windows155_timezone_sources.json.gz").read_bytes()))
 
@@ -108,12 +111,12 @@ def test_native_notification_and_devtools_paths_are_preserved(sources):
     assert "SetDefaultTimeZone(effective_id);" in monitor
 
 
-def test_manifest_appends_230_without_changing_png_addition():
+def test_manifest_appends_231_without_changing_donor230():
     data = json.loads((ROOT / "build/patch-additions-windows155.json").read_text())
     series = [line for line in (ROOT / "patches/series").read_text().splitlines()
               if line.strip() and not line.startswith("#")]
     assert len(series) == 224
-    assert len(series) + len(data["patches"]) == 230
+    assert len(series) + len(data["patches"]) == 231
     assert data["patches"][0] == {
         "path": "patches/chromium155-windows/0227-opaque-png-export-consistency.patch",
         "sha256": "4c048a50930c3541a3bb9e4442ad7f18e94c04ebccf86c0cfbfc286b15a70751",
@@ -124,9 +127,60 @@ def test_manifest_appends_230_without_changing_png_addition():
     ]
 
 
+def test_selector_authenticates_target231_and_donor230_manifest():
+    from tools import patch_selection
+
+    manifest = ROOT / patch_selection.WINDOWS155_ADDITIONS_MANIFEST
+    data = json.loads(manifest.read_bytes())
+    donor = {**data, "patches": data["patches"][:-1]}
+    assert hashlib.sha256((json.dumps(donor, indent=2) + "\n").encode()).hexdigest() == (
+        "5e7983a05e07f8f3ec10806fa06f180fb5ef20490568d8d83ce1b1e3db5fa104")
+    identity, patches = patch_selection.select(ROOT, "windows")
+    assert len(patches) == 231
+    assert identity["selection"]["additions"]["patches"] == data["patches"]
+    assert patches[-1][0] == PATCHES[-1]
+    assert hashlib.sha256(manifest.read_bytes()).hexdigest() == (
+        patch_selection.WINDOWS155_ADDITIONS_SHA256)
+    correction = (ROOT / PATCHES[-1]).read_text().splitlines()
+    removed = [line[1:] for line in correction if line.startswith("-") and not line.startswith("---")]
+    added_lines = [line[1:] for line in correction if line.startswith("+") and not line.startswith("+++")]
+    assert len(removed) == len(added_lines) == 1
+    assert removed[0].replace("FromUTF8", "FromUtf8") == added_lines[0]
+    assert "FromUTF8" in removed[0]
+
+
+def test_new_timezone_calls_match_exact_declarations(sources):
+    web_string = sources[WEB_STRING]
+    assert "static WebString FromUtf8(std::string_view s);" in web_string
+    assert "FromUTF8" not in web_string
+    assert "operator String() const;" in web_string
+    assert "WebString::FromUtf8(timezone)" in sources[RENDERER]
+    assert "WebString::FromUTF8(timezone)" not in sources[RENDERER]
+    wtf = sources["third_party/blink/renderer/platform/wtf/text/wtf_string.h"]
+    assert "bool empty() const" in wtf
+    assert "[[nodiscard]] std::string Ascii() const;" in wtf
+    assert "using AutoLock = internal::BasicAutoLock<Lock>;" in sources[
+        "base/synchronization/lock.h"]
+    assert "std::string Get(const std::string& key) const;" in added(3)
+    original = EVIDENCE["sources"][CONTROLLER + ".cc"]["text"]
+    install = block(sources[CONTROLLER + ".cc"], "bool TimeZoneController::SetDefaultTimeZone(")
+    native = block(original, "bool TimeZoneController::SetIcuTimeZoneAndNotifyV8(")
+    for call in (
+        "icu::TimeZone::createTimeZone(",
+        "icu::UnicodeString(timezone_id.Ascii().data(), -1, US_INV)",
+        "*timezone == icu::TimeZone::getUnknown()",
+    ):
+        assert call in install and call in native
+    for signature in (
+        "static bool HasTimeZoneOverride();",
+        "static bool SetIcuTimeZoneAndNotifyV8(const String& timezone_id);",
+    ):
+        assert signature in sources[CONTROLLER + ".h"]
+
+
 def test_single_file_split_preserves_original_diff_bytes_and_order():
     split = EVIDENCE["patch_split"]
-    assert [entry["path"] for entry in split["patches"]] == list(PATCHES)
+    assert [entry["path"] for entry in split["patches"]] == list(PATCHES[:-1])
     assert [entry["target"] for entry in split["patches"]] == [
         CONTROLLER + ".h", CONTROLLER + ".cc", PUBLIC, BRIDGE, RENDERER,
     ]
@@ -193,20 +247,67 @@ def native_binary(tmp_path_factory, sources):
         "const String& TimeZoneController::GetHostTimezoneId()",
         "void TimeZoneController::ChangeTimeZoneForTesting(",
     ))
-    unit = (FIXTURES / "windows155_timezone_shim.h").read_text() + header
+    directory = tmp_path_factory.mktemp("windows155-timezone-native")
+    dependencies = {
+        WEB_STRING: sources[WEB_STRING],
+        "base/memory/scoped_refptr.h": (
+            "#include <memory>\n"
+            "template <class T> using scoped_refptr = std::shared_ptr<T>;\n"),
+        "third_party/blink/public/platform/web_common.h": "#define BLINK_PLATFORM_EXPORT\n",
+        "third_party/blink/renderer/platform/wtf/forward.h": (
+            "namespace blink { class String; class StringView; class AtomicString; }\n"),
+    }
+    for name, text in dependencies.items():
+        path = directory / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+    unit = '#define INSIDE_BLINK 1\n'
+    unit += (FIXTURES / "windows155_timezone_shim.h").read_text() + header
+    declaration = re.search(r"BLINK_EXPORT bool SetRendererDefaultTimeZone\([^;]+;",
+                            sources[PUBLIC]).group()
+    unit += "\n#define BLINK_EXPORT\nnamespace blink {\n" + declaration + "\n}\n"
+    unit += """
+#include <type_traits>
+static_assert(std::is_same_v<decltype(&blink::WebString::FromUtf8),
+                            blink::WebString (*)(std::string_view)>);
+static_assert(std::is_convertible_v<blink::WebString, blink::String>);
+static_assert(std::is_same_v<decltype(&blink::SetRendererDefaultTimeZone),
+                            bool (*)(const blink::WebString&)>);
+static_assert(std::is_same_v<decltype(&blink::TimeZoneController::SetDefaultTimeZone),
+                            bool (*)(const blink::String&)>);
+"""
     unit += "\nnamespace blink {\n" + definitions
     unit += "\nTimeZoneController::~TimeZoneController() = default;\n"
     unit += block(sources[BRIDGE], "bool SetRendererDefaultTimeZone(") + "\n}\n"
     unit += block(sources[RENDERER], "void RenderThreadImpl::SetUxrConfig(")
     unit += (FIXTURES / "windows155_timezone_cases.cc").read_text()
-    directory = tmp_path_factory.mktemp("windows155-timezone-native")
     cpp, binary = directory / "timezone.cc", directory / "timezone"
     cpp.write_text(unit)
     result = subprocess.run([compiler, "-std=c++20", "-Wall", "-Wextra", "-Werror",
-                             str(cpp), *icu_flags(), "-o", str(binary)],
+                             "-I" + str(directory), str(cpp), *icu_flags(), "-o", str(binary)],
                             capture_output=True, text=True, timeout=90)
     assert result.returncode == 0, result.stdout + result.stderr
     return binary
+
+
+@pytest.mark.parametrize("before,after,diagnostic", [
+    ("blink::WebString::FromUtf8(timezone)",
+     "blink::WebString::FromUTF8(timezone)", "FromUTF8"),
+    ("WebString::FromUtf8(std::string_view value)",
+     "WebString::FromUtf8(const std::string& value)", "FromUtf8"),
+])
+def test_real_webstring_header_rejects_wrong_api(native_binary, tmp_path,
+                                               before, after, diagnostic):
+    source = (native_binary.parent / "timezone.cc").read_text()
+    assert source.count(before) == 1
+    cpp = tmp_path / "wrong-api.cc"
+    cpp.write_text(source.replace(before, after))
+    compiler = os.environ.get("CXX") or shutil.which("clang++") or shutil.which("c++")
+    result = subprocess.run(
+        [compiler, "-std=c++20", "-fsyntax-only", "-I" + str(native_binary.parent),
+         str(cpp), *icu_flags()], capture_output=True, text=True, timeout=90)
+    assert result.returncode != 0
+    assert diagnostic in result.stderr
 
 
 @pytest.mark.parametrize("case", [
@@ -245,7 +346,8 @@ def test_harness_detects_install_and_notification_regressions(native_binary, tmp
     cpp, binary = tmp_path / "mutated.cc", tmp_path / "mutated"
     cpp.write_text(source.replace(before, after))
     compiler = os.environ.get("CXX") or shutil.which("clang++") or shutil.which("c++")
-    compiled = subprocess.run([compiler, "-std=c++20", str(cpp), *icu_flags(), "-o", str(binary)],
+    compiled = subprocess.run([compiler, "-std=c++20", "-I" + str(native_binary.parent),
+                               str(cpp), *icu_flags(), "-o", str(binary)],
                               capture_output=True, text=True, timeout=90)
     assert compiled.returncode == 0, compiled.stdout + compiled.stderr
     result = subprocess.run([str(binary), case, "0"], capture_output=True, text=True, timeout=15)

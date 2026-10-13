@@ -28,6 +28,10 @@
     {
       "path": "patches/chromium155-windows/0232-renderer-launch-timezone-install.patch",
       "sha256": "345ef39c9cc6d987f59c44f3f4a46099391d6c629058f10c1151e02a654796a7"
+    },
+    {
+      "path": "patches/chromium155-windows/0233-renderer-timezone-webstring-api.patch",
+      "sha256": "7f7f691f2d744715e0d48a25dab5ff1e8ac793122657beacd0f99a3e7e8ba908"
     }
   ]
 }

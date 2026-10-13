@@ -267,7 +267,7 @@ def test_optional_independent_155_full_stack(tmp_path, repo155, substituted):
     assert report["identity"]["selection"]["core_commit"] == CORE
 
 
-@pytest.mark.parametrize("additions,expected", [(False, 224), (True, 230)])
+@pytest.mark.parametrize("additions,expected", [(False, 224), (True, 231)])
 def test_windows155_manifest_presence_distinguishes_historical_and_current(tmp_path, additions, expected):
     repo = clone_repo(tmp_path, additions=False)
     if additions:
@@ -280,7 +280,7 @@ def test_windows155_manifest_presence_distinguishes_historical_and_current(tmp_p
     assert ("additions" in identity["selection"]) == additions
     if additions:
         assert patches[224][0] == "patches/chromium155-windows/0227-opaque-png-export-consistency.patch"
-        assert patches[-1][0] == "patches/chromium155-windows/0232-renderer-launch-timezone-install.patch"
+        assert patches[-1][0] == "patches/chromium155-windows/0233-renderer-timezone-webstring-api.patch"
         manifest = json.loads((repo / selection.WINDOWS155_ADDITIONS_MANIFEST).read_bytes())
         assert identity["patches"][224:] == identity["selection"]["additions"]["patches"] == manifest["patches"]
 

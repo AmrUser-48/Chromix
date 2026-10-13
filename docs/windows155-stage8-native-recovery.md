@@ -1,6 +1,33 @@
 # Windows155 x64 第8阶段续编
 
-## 固定检查点
+## donor230 → target231 接口修复
+
+Run `38387174079`（源码 `c05c458c021f0f0964ec031c23395e1b86deb46f`）在
+`render_thread_impl.cc:863` 编译失败：`blink::WebString::FromUTF8` 不存在。
+新增单文件补丁 `0233-renderer-timezone-webstring-api.patch` 仅将该调用改为
+`FromUtf8`，Windows manifest 和 selector 绑定更新为231补丁。0228–0232、0227
+和根224补丁保持原字节，已上传 donor230 历史不重写。本提交不修改 workflow 或
+migration；latest-donor 迁移由独立变更接入，不能直接将旧225→230迁移当作已支持231。
+
+接口核对使用精确 [Chromium 155.0.8059.39 web_string.h](https://chromium.googlesource.com/chromium/src/+/155.0.8059.39/third_party/blink/public/platform/web_string.h)：
+`static WebString FromUtf8(std::string_view s);`，以及 Blink 内部
+`operator String() const;`。同时核对 `String::empty()`、`String::Ascii()`、
+`base::AutoLock`、补丁提供的 `UxrConfig::Get()` 与 controller 静态方法声明。
+新增 ICU 调用与精确版本原有 `SetIcuTimeZoneAndNotifyV8()` 的调用一致；公共桥接及
+controller 新接口由实际补丁后的声明参与编译检查。未发现其他同类拼写问题。
+
+专有测试保存完整上游头文件及 SHA256，独立重新下载核对全部14份源码；native harness
+直接包含未经改写的 `web_string.h`，不再自建 WebString 声明。只对其依赖、存储实现及
+scheduler/V8 使用测试 shim。编译负例要求错误大小写 `FromUTF8` 和错误参数类型
+`const std::string&` 均被真实声明拒绝；原有 ICU/DevTools/通知测试及补丁正反重放保留。
+这些测试不等价于 Windows x64 编译或浏览器原生验收。
+
+本地验证：时区、155 selector、通用 selector、patch linter 四组测试合计
+114 passed、4 skipped；跳过项是未设置 `CHROMIX_155_SOURCES` 的全栈独立重放，
+时区专有的独立源码核对已运行通过。`tools/check_patches.py` 和 `git diff --check`
+通过，Windows 选中231补丁。Windows x64 续编及浏览器验收仍须后续工作流执行。
+
+## 历史225检查点
 
 - Donor run：`38355909882`，attempt 1，job `115158636797`。
 - Donor SHA：`b8821cd2f782ca4da9b998b437fc3acb09cb3fea`。

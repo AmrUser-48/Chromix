@@ -83,17 +83,28 @@ class String {
   std::string value_;
   bool null_ = true;
 };
-class WebString {
+}  // namespace blink
+
+#include "third_party/blink/public/platform/web_string.h"
+
+namespace blink {
+class StringImpl {
  public:
-  static WebString FromUTF8(const std::string& value) {
-    WebString result;
-    result.value_ = String(value.c_str());
-    return result;
-  }
-  operator String() const { return value_; }
- private:
-  String value_;
+  explicit StringImpl(std::string_view value) : value(std::string(value).c_str()) {}
+  String value;
 };
+WebString::WebString() = default;
+WebString::~WebString() = default;
+WebString::WebString(const WebString&) = default;
+WebString::WebString(WebString&&) = default;
+WebString& WebString::operator=(const WebString&) = default;
+WebString& WebString::operator=(WebString&&) = default;
+WebString WebString::FromUtf8(std::string_view value) {
+  WebString result;
+  result.impl_ = std::make_shared<StringImpl>(value);
+  return result;
+}
+WebString::operator String() const { return impl_ ? impl_->value : String(); }
 inline bool IsMainThread() { return true; }
 inline constexpr int kLazyBlinkTimezoneInit = 0;
 inline String GetCurrentTimezoneId() {
