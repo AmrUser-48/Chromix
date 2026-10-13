@@ -10,7 +10,7 @@ import textwrap
 import unittest
 from pathlib import Path
 
-from tools.platform_pins import load_pins
+from tools.platform_pins import load_pins, load_shared_pins
 
 
 REPO = Path(__file__).resolve().parents[2]
@@ -747,6 +747,14 @@ class WindowsRestoredPreparationFixture:
                          "CHROMIUM_WINDOWS_VERSION", "build/ungoogled-revisions.psd1", "build/upstream-cache.json",
                          "build/windows/read-platform-pins.ps1"):
             self.put(self.repo / relative, (REPO / relative).read_text())
+        # The synthetic one-patch stack uses legacy pins, not reviewed 154/155 overrides.
+        pins = load_shared_pins(self.repo)
+        pins.update(WindowsChromiumVersion="153.0.8010.36", WindowsUngoogledVersion="153.0.8010.36-1",
+                    WindowsUngoogledCommit="e" * 40, UngoogledWindowsVersion="153.0.8010.36-1.1",
+                    UngoogledWindowsCommit="f" * 40)
+        self.put(self.repo / "build/ungoogled-revisions.psd1",
+                 "@{\n" + "".join(f'  {key} = "{value}"\n' for key, value in pins.items()) + "}\n")
+        self.put(self.repo / "CHROMIUM_WINDOWS_VERSION", pins["WindowsChromiumVersion"] + "\n")
         self.pins = load_pins(self.repo, "windows")
         path = self.repo / "build/upstream-cache.json"
         manifest = json.loads(path.read_text())
@@ -758,7 +766,7 @@ class WindowsRestoredPreparationFixture:
         self.put(self.src / "sample.cc", "blocked.test upstream\n")
         self.put(self.src / ".chromix-upstream-restored.json", '{"valid": true}')
         self.put(self.src / "out/Default/obj/retained.obj", "cached object")
-        for name in ("apply_restored_patches.py", "verify_patch_stack.py", "platform_pins.py"):
+        for name in ("apply_restored_patches.py", "verify_patch_stack.py", "patch_selection.py", "platform_pins.py"):
             self.put(self.repo / "tools" / name, (REPO / "tools" / name).read_text())
         self.put(self.repo / "tools/restore_upstream_cache.py", '''import json, os, sys
 from pathlib import Path
@@ -990,6 +998,27 @@ class WindowsRestoredBuildStageTest(WindowsRestoredPreparationFixture, unittest.
         self.put(self.repo / "tools/verify_patch_stack.py", (REPO / "tools/verify_patch_stack.py").read_text())
         self.put(self.repo / "tools/merge_gn_args.py", (REPO / "tools/merge_gn_args.py").read_text())
         self.put(self.repo / "tools/upstream_script_identity.py", (REPO / "tools/upstream_script_identity.py").read_text())
+        # Native metagen execution is covered separately from this legacy stage fixture.
+        self.put(self.repo / "tools/install_windows_metagen_bindings.py", '''import json, os, sys
+from pathlib import Path
+from platform_pins import load_pins
+repo = Path(os.environ['MOCK_REPO'])
+work = Path(os.environ['MOCK_WORK'])
+src = work / 'src'
+out = src / 'out/Default'
+version = load_pins(repo, 'windows')['ChromiumVersion']
+assert version == '153.0.8010.36'
+arguments = [value.replace(chr(92), '/') for value in sys.argv[1:]]
+assert arguments in (
+    ['--configure', '--src', str(src), '--out', str(out), '--chromium-version', version],
+    ['--src', str(src), '--out', str(out), '--ninja', str(src / 'third_party/ninja/ninja.exe'),
+     '--chromium-version', version, '--download'],
+)
+report = json.loads((work / 'upstream-cache-preparation.json').read_text())
+assert report['phase'] == 'finish' and report['ready_for_gn']
+assert report['source_identity']['chromium_version'] == version
+assert (src / '.chromix-restored-patches.json').is_file()
+''')
         self.ninja = self.src / "third_party/ninja/ninja.exe"
         self.ninja.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(self.src / "third_party/rust-toolchain/bin/cargo.exe", self.ninja)
@@ -1448,7 +1477,7 @@ class WindowsRestoreStageMockTest(unittest.TestCase):
                     "MOCK_PREPARE_EXHAUSTED": "0", "CHROMIX_USE_UPSTREAM_CACHE": "0",
                     "MOCK_PYTHON": sys.executable}
         (self.root / "tools").mkdir()
-        for name in ("verify_patch_stack.py", "apply_restored_patches.py"):
+        for name in ("verify_patch_stack.py", "apply_restored_patches.py", "patch_selection.py", "platform_pins.py"):
             shutil.copyfile(REPO / "tools" / name, self.root / "tools" / name)
         stage = STAGE.read_text()
         start = stage.index('$domainProgress = Join-Path $Src')
