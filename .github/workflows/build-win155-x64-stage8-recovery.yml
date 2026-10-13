@@ -1,0 +1,240 @@
+name: build-win155-x64-stage8-recovery
+run-name: build-win155-x64-stage8-recovery
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: build-win155-x64-stage8-recovery-${{ github.ref }}
+  cancel-in-progress: false
+env:
+  CHROMIX_BUILD_PROFILE: native
+  CHROMIX_JOBS: auto
+  CHROMIX_USE_UPSTREAM_CACHE: '1'
+  CHROMIX_WINDOWS_CACHE_REQUIRED: '1'
+  CHROMIX_PREFER_UPSTREAM_CACHE: '0'
+  DEPOT_TOOLS_WIN_TOOLCHAIN: '0'
+  DEPOT_TOOLS_METRICS: '0'
+  DEPOT_TOOLS_COLLECT_METRICS: '0'
+  CHROMIX_TARGET_ARCH: x64
+jobs:
+  build-8:
+    name: stage 8 (resume compile)
+    runs-on: windows-2022
+    timeout-minutes: 355
+    defaults:
+      run:
+        working-directory: target
+    outputs:
+      finished: ${{ steps.stage.outputs.finished }}
+      snapshot_attempt: ${{ steps.snapshot_origin.outputs.attempt }}
+    steps:
+    - name: Record snapshot producer attempt
+      id: snapshot_origin
+      shell: powershell
+      working-directory: ${{ github.workspace }}
+      run: |
+        Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "attempt=$env:GITHUB_RUN_ATTEMPT"
+        Add-Content -LiteralPath $env:GITHUB_ENV -Value "CHROMIX_MIGRATION_JOB_STARTED=$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())"
+    - uses: actions/checkout@v4
+      with:
+        path: target
+        fetch-depth: 0
+        persist-credentials: false
+    - name: Validate exact stage8 metadata
+      shell: powershell
+      env:
+        GH_TOKEN: ${{ secrets.UPSTREAM_ACTIONS_TOKEN || github.token }}
+      run: |
+        $ErrorActionPreference = 'Stop'
+        python tools/validate_windows155_stage8_checkpoint.py --repository "${{ github.repository }}" --metadata-report "$env:RUNNER_TEMP\windows-snapshot.json"
+        if ($LASTEXITCODE -ne 0) { throw 'exact stage8 metadata validation failed' }
+    - name: Checkout exact stage8 donor source read-only
+      uses: actions/checkout@v4
+      with:
+        repository: xiaozhou26/Chromix
+        ref: b8821cd2f782ca4da9b998b437fc3acb09cb3fea
+        path: donor
+        fetch-depth: 0
+        persist-credentials: false
+        submodules: false
+    - name: Free host cache space before checkpoint download
+      shell: powershell
+      run: |
+        $ErrorActionPreference = 'Stop'
+        foreach ($path in @('C:\Android', 'C:\Program Files\Android', 'C:\Program Files (x86)\Android', 'C:\ghcup', 'C:\Miniconda3', 'C:\ProgramData\chocolatey\cache')) {
+          if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue }
+        }
+    - name: Download exact stage8 snapshot volumes
+      shell: powershell
+      env:
+        GH_TOKEN: ${{ secrets.UPSTREAM_ACTIONS_TOKEN || github.token }}
+      run: |
+        $ErrorActionPreference = 'Stop'
+        # The validator emits a manifest pinned to the two exact stage-8 artifacts.
+        python tools/download_windows_snapshot.py --manifest "$env:RUNNER_TEMP\windows-snapshot.json" --destination 'C:\restore' --report "$env:RUNNER_TEMP\windows-snapshot-download.json"
+        if ($LASTEXITCODE -ne 0) { throw 'pinned Windows snapshot download failed' }
+    - name: Validate x64 snapshot markers and receipts
+      shell: powershell
+      run: |
+        $ErrorActionPreference = 'Stop'
+        python tools/validate_windows155_stage8_checkpoint.py --snapshot 'C:\restore\tree.7z.001' --report "$env:RUNNER_TEMP\windows-x64-snapshot-proof.json"
+        if ($LASTEXITCODE -ne 0) { throw 'x64 snapshot marker validation failed' }
+    - name: Restore verified checkpoint without cold fallback
+      shell: powershell
+      run: |
+        $ErrorActionPreference = 'Stop'
+        if (Test-Path -LiteralPath 'C:\c') { throw 'checkpoint destination already exists' }
+        $sevenZip = (Get-Command 7z.exe -ErrorAction Stop).Source
+        & $sevenZip t 'C:\restore\tree.7z.001' | Select-Object -Last 3
+        if ($LASTEXITCODE -ne 0) { throw 'checkpoint archive integrity test failed' }
+        & $sevenZip x 'C:\restore\tree.7z.001' '-oC:\c' -y | Select-Object -Last 3
+        if ($LASTEXITCODE -ne 0) { throw 'checkpoint extraction failed' }
+        Remove-Item -LiteralPath 'C:\restore' -Recurse -Force
+    - name: Migrate exact donor checkpoint to checked-out target source
+      shell: powershell
+      run: |
+        $ErrorActionPreference = 'Stop'
+        git config --global core.longpaths true
+        python -X utf8 tools/migrate_windows155_stage8_x64_snapshot.py --work-dir 'C:\c\chromix' --donor-repo "$env:GITHUB_WORKSPACE\donor" --target-repo "$env:GITHUB_WORKSPACE\target" --donor-sha b8821cd2f782ca4da9b998b437fc3acb09cb3fea --output "$env:RUNNER_TEMP\windows-x64-migration.json"
+        if ($LASTEXITCODE -ne 0) { throw 'checkpoint migration failed; refusing preparation or compilation' }
+    - name: Upload recovery proof diagnostics
+      if: ${{ always() }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: windows-x64-stage8-migration-proof-${{ github.run_attempt }}
+        path: |
+          ${{ runner.temp }}/windows-snapshot.json
+          ${{ runner.temp }}/windows-snapshot-download.json
+          ${{ runner.temp }}/windows-x64-snapshot-proof.json
+          ${{ runner.temp }}/windows-x64-migration.json
+        if-no-files-found: warn
+        retention-days: 7
+    - name: Select compile parallelism
+      shell: powershell
+      run: |
+        python tools/build_resources.py --github-env
+        if ($LASTEXITCODE -ne 0) { throw 'compile parallelism selection failed' }
+    - name: Run stage 8
+      id: stage
+      shell: powershell
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $elapsed = ([DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - [long]$env:CHROMIX_MIGRATION_JOB_STARTED) / 60
+        $budget = [Math]::Min(300, [Math]::Floor(325 - $elapsed))
+        if ($budget -lt 60) { throw 'insufficient checkpoint compile/snapshot budget after migration' }
+        if (-not (Test-Path -LiteralPath 'C:\c\chromix\src\out\Default\build.ninja' -PathType Leaf)) { throw 'compiled checkpoint missing; refusing cold fallback' }
+        build\windows\ci-stage.ps1 -StageIndex 8 -MaxStages 8 -FromSynced -UseUpstreamCache -Arch x64 -StageBudgetMinutes $budget -MigrationReceipt "$env:RUNNER_TEMP\windows-x64-migration.json" -MigrationDonorRepo "$env:GITHUB_WORKSPACE\donor" -MigrationCheckpoint stage8
+    - name: Record final loaded-module payload identities
+      if: ${{ always() && steps.stage.outputs.snapshot_safe == 'true' }}
+      shell: powershell
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $out = 'C:\c\chromix\src\out\Default'
+        $destination = 'C:\c\chromix\fingerprint-diagnostics'
+        New-Item -ItemType Directory -Force -Path $destination | Out-Null
+        $modules = @()
+        foreach ($name in @('chrome.exe', 'chrome.dll')) {
+          $path = Join-Path $out $name
+          if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "missing completed module: $name" }
+          $item = Get-Item -LiteralPath $path
+          $modules += @{ name = $name; size = $item.Length; sha256 = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() }
+        }
+        @{ schema_version = 1; target_sha = $env:GITHUB_SHA; run_id = $env:GITHUB_RUN_ID; modules = $modules; qualification = 'On-disk executable and implementation DLL identities; not proof of successful native acceptance' } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $destination 'candidate-module-identities.json') -Encoding UTF8
+    - name: Upload restored reuse evidence
+      if: ${{ always() }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: upstream-reuse-win-x64-${{ github.job }}-attempt-${{ github.run_attempt }}
+        path: |
+          C:\c\chromix\upstream-reuse\baseline.json
+          C:\c\chromix\upstream-reuse\result.json
+          C:\c\chromix\upstream-cache-preparation.json
+        if-no-files-found: ignore
+        retention-days: 7
+    - name: Upload fingerprint diagnostics
+      if: ${{ always() }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: fingerprint-win-x64-${{ github.job }}-attempt-${{ github.run_attempt }}
+        path: C:\c\chromix\fingerprint-diagnostics\
+        if-no-files-found: ignore
+        retention-days: 7
+    - name: Ensure build tree snapshot
+      if: ${{ always() && steps.stage.outputs.snapshot_safe == 'true' && steps.stage.outputs.upload_parts != 'true' && steps.stage.outputs.finished != 'true' }}
+      shell: powershell
+      run: |
+        New-Item -ItemType Directory -Force -Path C:\c\chromix | Out-Null
+        . build\windows\ci-parts.ps1 -Root C:\c -PartsDir C:\parts -Mode Synced
+    - name: Upload tree part 1
+      if: ${{ always() && steps.stage.outputs.snapshot_safe == 'true' && steps.stage.outputs.finished != 'true' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: win-x64-tree-s8-attempt-${{ github.run_attempt }}-part1
+        path: C:\parts\p1\*
+        if-no-files-found: warn
+        retention-days: 7
+        compression-level: 0
+    - name: Upload tree part 2
+      if: ${{ always() && steps.stage.outputs.snapshot_safe == 'true' && steps.stage.outputs.finished != 'true' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: win-x64-tree-s8-attempt-${{ github.run_attempt }}-part2
+        path: C:\parts\p2\*
+        if-no-files-found: warn
+        retention-days: 7
+        compression-level: 0
+    - name: Upload tree part 3
+      if: ${{ always() && steps.stage.outputs.snapshot_safe == 'true' && steps.stage.outputs.finished != 'true' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: win-x64-tree-s8-attempt-${{ github.run_attempt }}-part3
+        path: C:\parts\p3\*
+        if-no-files-found: warn
+        retention-days: 7
+        compression-level: 0
+    - name: Upload tree part 4
+      if: ${{ always() && steps.stage.outputs.snapshot_safe == 'true' && steps.stage.outputs.finished != 'true' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: win-x64-tree-s8-attempt-${{ github.run_attempt }}-part4
+        path: C:\parts\p4\*
+        if-no-files-found: warn
+        retention-days: 7
+        compression-level: 0
+    - name: Upload final bundle
+      if: ${{ success() && steps.stage.outputs.finished == 'true' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: win-x64
+        path: |
+          C:\c\dist\chromix-win-x64.zip
+          C:\c\dist\SHA256SUMS
+        if-no-files-found: error
+        retention-days: 7
+        compression-level: 0
+    - name: Upload final source receipt
+      if: ${{ success() && steps.stage.outputs.finished == 'true' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: chromix-win-x64-source-receipt
+        path: ${{ steps.stage.outputs.recovery_report_dir }}/source-verification.json
+        if-no-files-found: error
+        retention-days: 7
+  complete:
+    name: ensure native build and acceptance finished
+    needs: build-8
+    runs-on: ubuntu-latest
+    if: ${{ !cancelled() }}
+    steps:
+    - name: Require successful native stage 8
+      env:
+        RESULT: ${{ needs.build-8.result }}
+        FINISHED: ${{ needs.build-8.outputs.finished }}
+      run: |
+        if [ "$RESULT" != "success" ] || [ "$FINISHED" != "true" ]; then
+          echo 'Stage 8 did not pass native acceptance. Preserve the latest safe checkpoint; never cold-rebuild.'
+          exit 1
+        fi
+        echo 'Windows155 x64 native build, smoke, source verification and full fingerprint acceptance passed.'
+'on':
+  workflow_dispatch: {}
