@@ -43,7 +43,7 @@ Chromix 在固定版本的 Chromium、ungoogled 核心及平台层之上维护�
 
 选择下面任一种 SDK。SDK 优先使用显式配置的本地可执行文件，否则按**代码内配置的发布通道**下载浏览器并缓存。
 
-> SDK 的 `latest` 是固定版本映射，与 GitHub 的 Latest Release 分开维护。要使用指定版本（例如 `v154.0.8037.97`），请下载对应发布包并设置 `CLOAKBROWSER_BINARY_PATH`，或使用固定版本的 [Docker 镜像](docs/docker.md)。更新 SDK 不会替换显式指定的浏览器。
+> SDK 的 `latest` 是固定版本映射，与 GitHub 的 Latest Release 分开维护。新 SDK 发布前要使用 Linux `v155.0.8059.39`，请下载对应发布包并设置 `CLOAKBROWSER_BINARY_PATH`。[Docker 镜像](docs/docker.md) 双架构仍为 `154.0.8037.97`。更新 SDK 不会替换显式指定的浏览器。
 
 ### Python
 
@@ -183,27 +183,27 @@ Python 使用 `humanize=True`，Node 使用 `humanize: true` 启用 SDK 动作�
 
 ## 下载与平台
 
-从**同一个 Release** 下载浏览器 ZIP 和对应校验文件。**Windows x64 / ARM64 及 Linux x64 / ARM64 下载均使用 [v154.0.8037.97](https://github.com/xiaozhou26/Chromix/releases/tag/v154.0.8037.97)**。仅 macOS x64 / ARM64 暂时保留 [v154.0.8037.57](https://github.com/xiaozhou26/Chromix/releases/tag/v154.0.8037.57)，各自新版发布后再更新。
+从**同一个 Release** 下载浏览器 ZIP 和对应校验文件。**Linux x64 / ARM64 下载使用 [v155.0.8059.39](https://github.com/xiaozhou26/Chromix/releases/tag/v155.0.8059.39)**。Windows x64 / ARM64 保持 [v154.0.8037.97](https://github.com/xiaozhou26/Chromix/releases/tag/v154.0.8037.97)，macOS x64 / ARM64 保持 [v154.0.8037.57](https://github.com/xiaozhou26/Chromix/releases/tag/v154.0.8037.57)。Docker 双架构仍为 `154.0.8037.97`，不随本次 Linux ZIP 发布更新。
 
 | 目标平台 | 归档 | 解压后的手动启动入口 |
 |---|---|---|
 | Windows x64 | [`chromix-win-x64.zip`](https://github.com/xiaozhou26/Chromix/releases/download/v154.0.8037.97/chromix-win-x64.zip) | `chromix/chromix.cmd` |
 | Windows ARM64 | [`chromix-win-arm64.zip`](https://github.com/xiaozhou26/Chromix/releases/download/v154.0.8037.97/chromix-win-arm64.zip) | `chromix/chromix.cmd` |
-| Linux x64 / Docker amd64 | [`chromix-linux-x64.zip`](https://github.com/xiaozhou26/Chromix/releases/download/v154.0.8037.97/chromix-linux-x64.zip) | `chromix/chromix` |
-| Linux ARM64 | [`chromix-linux-arm64.zip`](https://github.com/xiaozhou26/Chromix/releases/download/v154.0.8037.97/chromix-linux-arm64.zip) | `chromix/chromix` |
+| Linux x64 | [`chromix-linux-x64.zip`](https://github.com/xiaozhou26/Chromix/releases/download/v155.0.8059.39/chromix-linux-x64.zip) | `chromix/chromix` |
+| Linux ARM64 | [`chromix-linux-arm64.zip`](https://github.com/xiaozhou26/Chromix/releases/download/v155.0.8059.39/chromix-linux-arm64.zip) | `chromix/chromix` |
 | macOS Intel | [`chromix-mac-x64.zip`](https://github.com/xiaozhou26/Chromix/releases/download/v154.0.8037.57/chromix-mac-x64.zip) | `chromix/chromix` |
 | macOS Apple Silicon | [`chromix-mac-arm64.zip`](https://github.com/xiaozhou26/Chromix/releases/download/v154.0.8037.57/chromix-mac-arm64.zip) | `chromix/chromix` |
 
 各平台独立构建和发布。Windows ARM64 在 `windows-2022` 交叉编译，在 `windows-11-arm` 做原生验证。macOS 包没有 Developer ID 分发签名和公证；Linux 需要兼容的系统库及可工作的 Chromium sandbox。
 
-**校验清单可能按平台拆分。** `v154.0.8037.97` 的 Linux x64 对应 `SHA256SUMS`，Linux ARM64 对应 `SHA256SUMS-linux-arm64`。Windows x64 对应 [`SHA256SUMS-win-x64`](https://github.com/xiaozhou26/Chromix/releases/download/v154.0.8037.97/SHA256SUMS-win-x64)，同一 Release 的主清单 [`SHA256SUMS`](https://github.com/xiaozhou26/Chromix/releases/download/v154.0.8037.97/SHA256SUMS) 也包含该 ZIP。Windows ARM64 对应 [`SHA256SUMS-win-arm64`](https://github.com/xiaozhou26/Chromix/releases/download/v154.0.8037.97/SHA256SUMS-win-arm64)。选择包含你下载的 ZIP 名称的清单；通用清单未必覆盖所有平台。
+**校验清单可能按平台拆分。** `v155.0.8059.39` 的 Linux x64 对应 [`SHA256SUMS-linux-x64`](https://github.com/xiaozhou26/Chromix/releases/download/v155.0.8059.39/SHA256SUMS-linux-x64)，Linux ARM64 对应 [`SHA256SUMS-linux-arm64`](https://github.com/xiaozhou26/Chromix/releases/download/v155.0.8059.39/SHA256SUMS-linux-arm64)，同一 Release 也提供主清单 [`SHA256SUMS`](https://github.com/xiaozhou26/Chromix/releases/download/v155.0.8059.39/SHA256SUMS)。Windows x64 对应 [`SHA256SUMS-win-x64`](https://github.com/xiaozhou26/Chromix/releases/download/v154.0.8037.97/SHA256SUMS-win-x64)，同一 Release 的主清单 [`SHA256SUMS`](https://github.com/xiaozhou26/Chromix/releases/download/v154.0.8037.97/SHA256SUMS) 也包含该 ZIP。Windows ARM64 对应 [`SHA256SUMS-win-arm64`](https://github.com/xiaozhou26/Chromix/releases/download/v154.0.8037.97/SHA256SUMS-win-arm64)。选择包含你下载的 ZIP 名称的清单；通用清单未必覆盖所有平台。
 
 Linux x64 下载两份文件后：
 
 ```bash
 set -eu
 archive=chromix-linux-x64.zip
-awk -v name="$archive" '$2 == name || $2 == "*" name { print; count++ } END { if (count != 1) exit 1 }' SHA256SUMS > SHA256SUMS.selected
+awk -v name="$archive" '$2 == name || $2 == "*" name { print; count++ } END { if (count != 1) exit 1 }' SHA256SUMS-linux-x64 > SHA256SUMS.selected
 sha256sum -c SHA256SUMS.selected
 unzip "$archive" -d chromix-linux-x64
 ./chromix-linux-x64/chromix/chromix --version
@@ -234,20 +234,23 @@ export CLOAKBROWSER_BINARY_PATH="/absolute/path/chromix/Chromium.app/Contents/Ma
 
 ### 分清三类版本
 
-**Python SDK `152.0.7977.82.post4` 和 Node SDK `0.1.4` 已发布**，Windows 和 Linux 的 x64 / ARM64 四个平台均将 `stable` / `latest` 映射到 `v154.0.8037.97`。SDK 同时兼容 Windows 发布归档的路径分隔符。macOS 保留 stable `v151.0.7922.173` 与 latest `v152.0.7977.75`。也可通过 `CLOAKBROWSER_BINARY_PATH` 指定本地浏览器。使用 `python -m pip install --upgrade chromix` 或 `npm install @xiaoxiaofeihh/chromix@latest` 升级。SDK 包版本与浏览器版本分别管理。
+**Python SDK `152.0.7977.82.post5` 和 Node SDK `0.1.5` 已发布**，Linux x64 / ARM64 的 `stable` / `latest` 已切换到 `v155.0.8059.39`；Windows x64 / ARM64 保持 `v154.0.8037.97`，macOS 保持 stable `v151.0.7922.173` 与 latest `v152.0.7977.75`。旧的 post4 / 0.1.4 包仍选择 Linux `v154.0.8037.97`，需要升级 SDK，或通过 `CLOAKBROWSER_BINARY_PATH` 指定已核验的本地浏览器。可使用 `python -m pip install --upgrade chromix` 或 `npm install @xiaoxiaofeihh/chromix@latest` 升级。SDK 包版本与浏览器版本分别管理。
 
-| 版本来源 | 当前仓库配置 | 含义 |
+| 版本来源 | 版本 / 目标 | 含义 |
 |---|---|---|
-| Linux / Windows 源码 | Chromium `154.0.8037.97` | 对应平台工作流要编译的版本 |
-| macOS 源码 | Chromium `154.0.8037.97` | 使用上游运行 `37654894671` 的编译文件树；新版构建验证前保留既有发布下载入口 |
+| `main` Linux / Windows 源码 | Chromium `154.0.8037.97` | 主源码配置保持不变 |
+| Linux 155 构建分支 | Chromium `155.0.8059.39` | 独立发布构建，不代表 `main` 源码固定版本已升级 |
+| `main` macOS 源码 | Chromium `154.0.8037.97` | 使用上游运行 `37654894671` 的编译文件树；新版构建验证前保留既有发布下载入口 |
 | Docker `latest` / `154.0.8037.97` | amd64 / arm64 `154.0.8037.97` | 双架构使用同一发布版本，旧 `.57` 标签保留 |
-| SDK Linux x64 / ARM64 `stable` / `latest` | [`v154.0.8037.97`](https://github.com/xiaozhou26/Chromix/releases/tag/v154.0.8037.97) | Linux 双架构的自动下载映射 |
+| SDK Linux x64 / ARM64 `stable` / `latest` | [`v155.0.8059.39`](https://github.com/xiaozhou26/Chromix/releases/tag/v155.0.8059.39) | 已随 Python `152.0.7977.82.post5` / Node `0.1.5` 发布 |
 | SDK Windows x64 `stable` / `latest` | [`v154.0.8037.97`](https://github.com/xiaozhou26/Chromix/releases/tag/v154.0.8037.97) | 已随 Python `152.0.7977.82.post3` / Node `0.1.3` 发布 |
 | SDK Windows ARM64 `stable` / `latest` | [`v154.0.8037.97`](https://github.com/xiaozhou26/Chromix/releases/tag/v154.0.8037.97) | 已随 Python `152.0.7977.82.post4` / Node `0.1.4` 发布 |
 | SDK macOS `stable` | [`v151.0.7922.173`](https://github.com/xiaozhou26/Chromix/releases/tag/v151.0.7922.173) | 保留既有映射，使用前核对资产可用性 |
 | SDK macOS `latest` | [`v152.0.7977.75`](https://github.com/xiaozhou26/Chromix/releases/tag/v152.0.7977.75) | 保留既有映射，使用前核对资产可用性 |
 
 源码配置以 [build/ungoogled-revisions.psd1](build/ungoogled-revisions.psd1) 为准，下载通道见 [Python](sdk/python/chromix/_binary.py) / [Node](sdk/node/_binary.js) 下载器。`CLOAKBROWSER_VERSION` 可选择已配置主版本或四段完整版本；显式通道优先。指定精确版本但该平台资产不存在时会报错，不静默退回其他版本。SDK 版本、浏览器发布版本和源码固定版本分别维护；新原生功能需要相应补丁编译出的浏览器。Windows ARM64 的 `.97` 包复用通过原生重验的 216 补丁构建，不包含当前源码中的新 noise 改动。
+
+Linux `v155.0.8059.39` 双架构均复用各自的原始 226 补丁包，原生 CI gate 已通过，但 `fullAcceptance=false`，仍有 164 项验收缺口。未进行新的 pixel-noise 专项验证；既有补丁的 noise 覆盖仍属未知，不能据此宣称完整验收或 pixel-noise 效果已验证。
 
 ## 功能边界与验证
 

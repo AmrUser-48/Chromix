@@ -43,7 +43,7 @@ A **persona** is the browser identity configuration used for a launch. Its repor
 
 Choose a language below. The SDK resolves a locally configured executable first; otherwise it downloads and caches the browser selected by its **configured release channel**.
 
-> The SDK's `latest` channel is a pinned mapping, separate from GitHub's Latest release. For a specific release such as `v154.0.8037.97`, download its package and set `CLOAKBROWSER_BINARY_PATH`, or use the pinned [Docker image](docs/docker.md). Updating an SDK does not replace an explicitly configured browser.
+> The SDK's `latest` channel is a pinned mapping, separate from GitHub's Latest release. To use Linux `v155.0.8059.39` before the new SDK is published, download its package and set `CLOAKBROWSER_BINARY_PATH`. The [Docker image](docs/docker.md) remains at `154.0.8037.97` for both architectures. Updating an SDK does not replace an explicitly configured browser.
 
 ### Python
 
@@ -183,27 +183,27 @@ Add `humanize=True` in Python or `humanize: true` in Node to enable the SDK's in
 
 ## Downloads and platforms
 
-Download ZIPs and their checksum files from the **same release**. **Windows x64 / ARM64 and Linux x64 / ARM64 downloads use [v154.0.8037.97](https://github.com/xiaozhou26/Chromix/releases/tag/v154.0.8037.97)**. Only macOS x64 / ARM64 downloads retain [v154.0.8037.57](https://github.com/xiaozhou26/Chromix/releases/tag/v154.0.8037.57) until their newer packages are published.
+Download ZIPs and their checksum files from the **same release**. **Linux x64 / ARM64 downloads use [v155.0.8059.39](https://github.com/xiaozhou26/Chromix/releases/tag/v155.0.8059.39)**. Windows x64 / ARM64 remain at [v154.0.8037.97](https://github.com/xiaozhou26/Chromix/releases/tag/v154.0.8037.97), and macOS x64 / ARM64 remain at [v154.0.8037.57](https://github.com/xiaozhou26/Chromix/releases/tag/v154.0.8037.57). Docker is unchanged at `154.0.8037.97` for both architectures.
 
 | Target | Archive | Manual launcher inside the extracted directory |
 |---|---|---|
 | Windows x64 | [`chromix-win-x64.zip`](https://github.com/xiaozhou26/Chromix/releases/download/v154.0.8037.97/chromix-win-x64.zip) | `chromix/chromix.cmd` |
 | Windows ARM64 | [`chromix-win-arm64.zip`](https://github.com/xiaozhou26/Chromix/releases/download/v154.0.8037.97/chromix-win-arm64.zip) | `chromix/chromix.cmd` |
-| Linux x64 / Docker amd64 | [`chromix-linux-x64.zip`](https://github.com/xiaozhou26/Chromix/releases/download/v154.0.8037.97/chromix-linux-x64.zip) | `chromix/chromix` |
-| Linux ARM64 | [`chromix-linux-arm64.zip`](https://github.com/xiaozhou26/Chromix/releases/download/v154.0.8037.97/chromix-linux-arm64.zip) | `chromix/chromix` |
+| Linux x64 | [`chromix-linux-x64.zip`](https://github.com/xiaozhou26/Chromix/releases/download/v155.0.8059.39/chromix-linux-x64.zip) | `chromix/chromix` |
+| Linux ARM64 | [`chromix-linux-arm64.zip`](https://github.com/xiaozhou26/Chromix/releases/download/v155.0.8059.39/chromix-linux-arm64.zip) | `chromix/chromix` |
 | macOS Intel | [`chromix-mac-x64.zip`](https://github.com/xiaozhou26/Chromix/releases/download/v154.0.8037.57/chromix-mac-x64.zip) | `chromix/chromix` |
 | macOS Apple Silicon | [`chromix-mac-arm64.zip`](https://github.com/xiaozhou26/Chromix/releases/download/v154.0.8037.57/chromix-mac-arm64.zip) | `chromix/chromix` |
 
 Platforms build and publish independently. Windows ARM64 cross-compiles on `windows-2022` and uses `windows-11-arm` for native verification. macOS bundles have no Developer ID distribution signature or notarization. Linux needs compatible system libraries and a working Chromium sandbox.
 
-**Checksum files may be platform-specific.** For `v154.0.8037.97`, Linux x64 uses `SHA256SUMS`, while Linux ARM64 uses `SHA256SUMS-linux-arm64`. Windows x64 uses [`SHA256SUMS-win-x64`](https://github.com/xiaozhou26/Chromix/releases/download/v154.0.8037.97/SHA256SUMS-win-x64); its ZIP is also listed in the same release's main [`SHA256SUMS`](https://github.com/xiaozhou26/Chromix/releases/download/v154.0.8037.97/SHA256SUMS). Windows ARM64 uses [`SHA256SUMS-win-arm64`](https://github.com/xiaozhou26/Chromix/releases/download/v154.0.8037.97/SHA256SUMS-win-arm64). Select the file containing your exact ZIP name; do not assume the generic manifest lists every platform.
+**Checksum files may be platform-specific.** For `v155.0.8059.39`, Linux x64 uses [`SHA256SUMS-linux-x64`](https://github.com/xiaozhou26/Chromix/releases/download/v155.0.8059.39/SHA256SUMS-linux-x64), and Linux ARM64 uses [`SHA256SUMS-linux-arm64`](https://github.com/xiaozhou26/Chromix/releases/download/v155.0.8059.39/SHA256SUMS-linux-arm64); the release also provides a main [`SHA256SUMS`](https://github.com/xiaozhou26/Chromix/releases/download/v155.0.8059.39/SHA256SUMS). Windows x64 uses [`SHA256SUMS-win-x64`](https://github.com/xiaozhou26/Chromix/releases/download/v154.0.8037.97/SHA256SUMS-win-x64); its ZIP is also listed in the same release's main [`SHA256SUMS`](https://github.com/xiaozhou26/Chromix/releases/download/v154.0.8037.97/SHA256SUMS). Windows ARM64 uses [`SHA256SUMS-win-arm64`](https://github.com/xiaozhou26/Chromix/releases/download/v154.0.8037.97/SHA256SUMS-win-arm64). Select the file containing your exact ZIP name; do not assume the generic manifest lists every platform.
 
 Linux x64 example, after downloading both files:
 
 ```bash
 set -eu
 archive=chromix-linux-x64.zip
-awk -v name="$archive" '$2 == name || $2 == "*" name { print; count++ } END { if (count != 1) exit 1 }' SHA256SUMS > SHA256SUMS.selected
+awk -v name="$archive" '$2 == name || $2 == "*" name { print; count++ } END { if (count != 1) exit 1 }' SHA256SUMS-linux-x64 > SHA256SUMS.selected
 sha256sum -c SHA256SUMS.selected
 unzip "$archive" -d chromix-linux-x64
 ./chromix-linux-x64/chromix/chromix --version
@@ -234,22 +234,25 @@ Then use the usual SDK launch functions. This environment variable works in both
 
 ### Versions and download channels
 
-**Python SDK `152.0.7977.82.post4` and Node SDK `0.1.4` are published.** Both Windows architectures and both Linux architectures map `stable` / `latest` to `v154.0.8037.97`. The SDKs also support the Windows release archive's path separators. macOS retains stable `v151.0.7922.173` and latest `v152.0.7977.75`. A local browser can be selected with `CLOAKBROWSER_BINARY_PATH`. Upgrade with `python -m pip install --upgrade chromix` or `npm install @xiaoxiaofeihh/chromix@latest`. SDK package versions remain separate from the browser version.
+**Python SDK `152.0.7977.82.post5` and Node SDK `0.1.5` are published.** Their `stable` / `latest` mappings are Linux x64 / ARM64 → `v155.0.8059.39` and Windows x64 / ARM64 → `v154.0.8037.97`. macOS keeps stable `v151.0.7922.173` and latest `v152.0.7977.75`. Earlier post4 / 0.1.4 packages retain Linux `v154.0.8037.97`; upgrade your SDK or select a verified local executable with `CLOAKBROWSER_BINARY_PATH`. Upgrade with `python -m pip install --upgrade chromix` or `npm install @xiaoxiaofeihh/chromix@latest`. SDK package versions remain separate from the browser version.
 
 These are separate version sources:
 
-| Version source | Current checkout | Meaning |
+| Version source | Version / target | Meaning |
 |---|---|---|
-| Linux / Windows source pins | Chromium `154.0.8037.97` | Version compiled by those platform workflows |
-| macOS source pin | Chromium `154.0.8037.97` | Build cache from upstream run `37654894671`; existing published downloads remain unchanged until the new build is verified |
+| `main` Linux / Windows source pins | Chromium `154.0.8037.97` | Main source configuration remains unchanged |
+| Linux 155 build branch | Chromium `155.0.8059.39` | Independent release build; does not upgrade the source pins on `main` |
+| `main` macOS source pin | Chromium `154.0.8037.97` | Build cache from upstream run `37654894671`; existing published downloads remain unchanged until the new build is verified |
 | Container `latest` / `154.0.8037.97` | amd64 / arm64 `154.0.8037.97` | Both architectures use the same release; the old `.57` tag is retained |
-| SDK Linux x64 / ARM64 `stable` / `latest` | [`v154.0.8037.97`](https://github.com/xiaozhou26/Chromix/releases/tag/v154.0.8037.97) | Platform-specific automatic download target |
+| SDK Linux x64 / ARM64 `stable` / `latest` | [`v155.0.8059.39`](https://github.com/xiaozhou26/Chromix/releases/tag/v155.0.8059.39) | Published in Python `152.0.7977.82.post5` / Node `0.1.5` |
 | SDK Windows x64 `stable` / `latest` | [`v154.0.8037.97`](https://github.com/xiaozhou26/Chromix/releases/tag/v154.0.8037.97) | Published in Python `152.0.7977.82.post3` / Node `0.1.3` |
 | SDK Windows ARM64 `stable` / `latest` | [`v154.0.8037.97`](https://github.com/xiaozhou26/Chromix/releases/tag/v154.0.8037.97) | Published in Python `152.0.7977.82.post4` / Node `0.1.4` |
 | SDK macOS `stable` | [`v151.0.7922.173`](https://github.com/xiaozhou26/Chromix/releases/tag/v151.0.7922.173) | Existing mapping retained; check asset availability |
 | SDK macOS `latest` | [`v152.0.7977.75`](https://github.com/xiaozhou26/Chromix/releases/tag/v152.0.7977.75) | Existing mapping retained; check asset availability |
 
 Source pins are authoritative in [build/ungoogled-revisions.psd1](build/ungoogled-revisions.psd1); channel mappings are in the [Python](sdk/python/chromix/_binary.py) and [Node](sdk/node/_binary.js) downloaders. `CLOAKBROWSER_VERSION` accepts a configured major or an exact four-part release version; an explicit channel takes precedence. Exact versions fail if the requested platform asset is absent. A source feature requires a browser built with the corresponding patches; an SDK update alone cannot add it to an older executable. The Windows ARM64 `.97` package reuses the natively reverified 216-patch build; it does not include the new noise changes in the current source.
+
+The Linux `v155.0.8059.39` release reuses the original 226-patch packages for both architectures. Native CI gates passed, but `fullAcceptance=false` and 164 acceptance gaps remain. There was no dedicated new pixel-noise validation; prior-patch noise coverage remains unknown. These results do not establish full acceptance or pixel-noise effectiveness.
 
 ## Feature scope and verification
 
