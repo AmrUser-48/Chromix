@@ -799,3 +799,142 @@ def test_server_event_buffer_is_bounded_and_close_remains_visible():
     assert len(handler.diagnostic['events']) == 256
     assert handler.diagnostic['dropped_events'] == 45
     assert handler.diagnostic['events'][-1]['event'] == 'closed'
+
+
+def certificate_update_fixture():
+    report = replacement_report()
+    report['diagnostics'] = {'origin': 'https://127.0.0.1:1234'}
+    value = native_netlog_fixture(report)
+    value['constants']['logSourceType'].update(CERT_VERIFY_PROC=3, QUIC_SESSION_POOL=4)
+    names = value['constants']['logEventTypes']
+    for name in (*sorted(lifecycle.NETLOG_GLOBAL_LIFECYCLE_EVENTS), 'CERT_VERIFY_PROC',
+                 'CERT_VERIFY_PROC_CREATED_UNAPPROVED'):
+        names[name] = len(names)
+    close = next(e for e in value['events'] if e['type'] == names['HTTP2_SESSION_CLOSE'])
+    close['params']['net_error'] = 0
+    rows = [
+        ('CERT_VERIFY_PROC_CREATED', 3, -2**31 + 4, '99'),
+        ('CERT_VERIFY_PROC_CREATED', 3, -2**31 + 3, '101'),
+        ('QUIC_SESSION_POOL_MARK_ALL_ACTIVE_SESSIONS_GOING_AWAY', 4, 18, '101'),
+        ('QUIC_SESSION_POOL_CLOSE_ALL_SESSIONS', 4, 11, '102'),
+        ('CERT_VERIFY_PROC_CREATED', 3, -2**31 + 2, '103'),
+        ('CERT_VERIFY_PROC', 3, 999, '101'),
+        ('CERT_VERIFY_PROC_CREATED_UNAPPROVED', 3, 998, '101'),
+    ]
+    for name, kind, sid, tick in rows:
+        value['events'].append({'type': names[name], 'phase': 0, 'time': tick,
+            'source': {'type': kind, 'id': sid}, 'params': {
+                'certificates': ['PRIVATE-cert'], 'host': 'PRIVATE-host', 'spki': 'PRIVATE-spki',
+                'description': 'PRIVATE-description', 'reason': 'PRIVATE-reason',
+                'headers': ['PRIVATE-header'], 'bytes': 'PRIVATE-bytes',
+                'network_context': 'PRIVATE-context', 'generation': 'PRIVATE-generation',
+                'unknown': {'nested': 'PRIVATE-secret'}}})
+    responses = [{'context': r['context'], 'url': report['diagnostics']['origin'] + p['wire']['headers'][':path'],
+        'socket_source_id': p['wire']['connection_id'] + 70, 'protocol': 'h2'}
+        for r in report['runs'] for p in r['phases']]
+    return value, report, responses
+
+
+def test_certificate_pool_events_are_private_temporal_candidates_not_close_causes(tmp_path):
+    value, report, responses = certificate_update_fixture()
+    assessment = lifecycle.assess(report)
+    capture, _, _ = write_capture(tmp_path, json.dumps(value).encode())
+    capture.report['responses'] = responses
+    capture.finish(report)
+    assert capture.report['status'] == 'captured' and not capture.report['gating']
+    derivative = capture.destination.read_bytes()
+    assert b'PRIVATE' not in derivative and 'PRIVATE' not in json.dumps(capture.report)
+    projected = lifecycle.strict_json(derivative)
+    assert lifecycle.project_netlog(projected) == projected
+    assert not capture.private.exists()
+    summary = capture.report
+    added = [e for e in summary['events'] if e['type'] in lifecycle.NETLOG_GLOBAL_LIFECYCLE_EVENTS]
+    assert len(added) == 5 and all(e['scope'] == 'global_candidate' for e in added)
+    assert all(e['params'] == {} for e in added)
+    assert any(e['source']['id'] == -2**31 + 3 for e in added)
+    assert not any(e['type'] in ('CERT_VERIFY_PROC', 'CERT_VERIFY_PROC_CREATED_UNAPPROVED')
+                   for e in summary['events'])
+    analysis = summary['close_analysis']
+    assert not analysis['gating'] and analysis['clock'] == 'netlog_ticks'
+    c1 = analysis['connections'][0]
+    assert c1['connection_id'] == 1 and c1['contexts'] == [0]
+    assert c1['binding_status'] == 'linked'
+    assert c1['observation'] == 'ok_close_without_observed_peer_goaway'
+    assert c1['cause'] == 'not_proven' and c1['recv_goaway_event_indexes'] == []
+    assert c1['close_events'] == [{'derivative_index': 2, 'time': '102', 'net_error': 0}]
+    assert c1['initialization_event_indexes'] == [1] and c1['socket_end_event_indexes'] == [3]
+    window = c1['global_candidate_indexes_during_session']
+    assert window == [e['derivative_index'] for e in added if e['time'] in ('101', '102')]
+    assert len(window) == 3
+    assert all(i in analysis['global_candidate_event_indexes'] for i in window)
+    assert all(projected['events'][e['derivative_index']]['time'] == e['time'] for e in added)
+    assert 'inclusive native ticks' in analysis['qualification']
+    assert 'not proof of a verifier update' in analysis['qualification']
+    assert analysis['additional_chromium_instrumentation_required']
+    report['diagnostics']['netlog'] = summary
+    assert lifecycle.assess(report) == assessment
+    assert assessment[0] == ['HTTP2 reuse / GOAWAY reconnect sequence failed']
+
+
+@pytest.mark.parametrize('error', [0, -3, -100, -716])
+def test_final_close_error_never_becomes_a_certificate_update_cause(error):
+    value, report, responses = certificate_update_fixture()
+    names = value['constants']['logEventTypes']
+    close = next(e for e in value['events'] if e['type'] == names['HTTP2_SESSION_CLOSE'])
+    close['params']['net_error'] = error
+    summary = lifecycle.summarize_netlog(lifecycle.project_netlog(value), responses, report)
+    c1 = summary['close_analysis']['connections'][0]
+    assert c1['cause'] == 'not_proven'
+    assert c1['close_events'][0]['net_error'] == error
+    expected = 'ok' if error == 0 else 'error'
+    assert c1['observation'] == expected + '_close_without_observed_peer_goaway'
+    c2 = next(c for c in summary['close_analysis']['connections'] if c['connection_id'] == 5)
+    assert c2['observation'] == 'peer_goaway_observed' and c2['cause'] == 'not_proven'
+
+
+@pytest.mark.parametrize('mode', ['absent', 'outside_session', 'unbound', 'missing_close',
+                                 'duplicate_close', 'bad_order', 'truncated'])
+def test_certificate_close_analysis_does_not_fill_missing_evidence(mode):
+    value, report, responses = certificate_update_fixture()
+    names = value['constants']['logEventTypes']
+    if mode == 'absent':
+        value['events'] = [e for e in value['events'] if e['type'] not in
+            {names[n] for n in lifecycle.NETLOG_GLOBAL_LIFECYCLE_EVENTS}]
+    elif mode == 'outside_session':
+        for event in value['events']:
+            if event['type'] in {names[n] for n in lifecycle.NETLOG_GLOBAL_LIFECYCLE_EVENTS}:
+                event['time'] = '9999'
+    elif mode == 'unbound':
+        responses.append(deepcopy(responses[0]))
+    elif mode == 'missing_close':
+        value['events'] = [e for e in value['events'] if not
+            (e['source']['id'] == 81 and e['type'] == names['HTTP2_SESSION_CLOSE'])]
+    elif mode == 'duplicate_close':
+        value['events'].append(deepcopy(value['events'][2]))
+    elif mode == 'bad_order':
+        value['events'][2]['time'] = '1'
+    elif mode == 'truncated':
+        value['events'] = [deepcopy(value['events'][-5]) for _ in range(4096)] + value['events']
+    before = deepcopy(report), deepcopy(responses)
+    summary = lifecycle.summarize_netlog(lifecycle.project_netlog(value), responses, report)
+    assert (report, responses) == before
+    analysis = summary['close_analysis']
+    c1 = analysis['connections'][0]
+    assert c1['global_candidate_indexes_during_session'] == [] and c1['cause'] == 'not_proven'
+    if mode in ('absent', 'outside_session'):
+        assert c1['observation'] == 'ok_close_without_observed_peer_goaway'
+    else:
+        assert c1['observation'] == 'incomplete_or_ambiguous' and c1['binding_status'] == 'unresolved'
+    assert analysis['summary_truncated'] is (mode == 'truncated')
+
+
+def test_global_candidate_dependency_does_not_bind_certificate_proc_to_owned_context():
+    value, report, responses = certificate_update_fixture()
+    value['events'][-6]['params']['source_dependency'] = {'type': 2, 'id': 81, 'secret': 'PRIVATE-edge'}
+    projected = lifecycle.project_netlog(value)
+    summary = lifecycle.summarize_netlog(projected, responses, report)
+    event = next(e for e in summary['events'] if e['source']['id'] == -2**31 + 3)
+    assert event['scope'] == 'global_candidate' and event['params'] == {'source_dependency': {'type': 2, 'id': 81}}
+    assert all(s['type'] in ('SOCKET', 'HTTP2_SESSION') for b in summary['bindings'] for s in b['sources'])
+    assert all(c['cause'] == 'not_proven' for c in summary['close_analysis']['connections'])
+    assert 'PRIVATE' not in json.dumps(summary)

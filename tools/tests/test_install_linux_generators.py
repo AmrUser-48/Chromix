@@ -133,7 +133,7 @@ class InstallLinuxGeneratorsTest(unittest.TestCase):
         self.fixture.write(self.src / "chrome/VERSION", "\n".join(
             f"{key}={value}" for key, value in zip(("MAJOR", "MINOR", "BUILD", "PATCH"), LINUX153_PINS[0].split("."))))
         with mock.patch.object(installer, "ensure_archive") as archive, \
-                self.assertRaisesRegex(ValueError, "exact Linux154"):
+                self.assertRaisesRegex(ValueError, "unverified Linux generator pins"):
             self.install(download=True)
         archive.assert_not_called()
 

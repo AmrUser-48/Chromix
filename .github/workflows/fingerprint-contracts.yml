@@ -118,6 +118,9 @@ jobs:
           tools/tests/test_explicit_pixel_noise.py tools/tests/test_webgl_seeded_noise.py
           tools/tests/test_pixel_noise_diagnostic.py tools/tests/test_gpu_identity_diagnostic.py
           tools/tests/test_browser_feature_check.py
+          tools/tests/test_chromium155_patch_selection.py
+          tools/tests/test_linux155_restore_links.py tools/tests/test_windows155_midl.py
+          tools/tests/test_windows_metagen_bindings.py
           tools/tests/test_macos152_patch_selection.py tools/tests/test_macos154_patch_selection.py
           tools/tests/test_mac154_restore_links.py
           tools/tests/test_macos_restored_generators.py tools/tests/test_install_macos_generators.py
@@ -133,6 +136,13 @@ jobs:
         run: >-
           python -X utf8 -m pytest -q tools/tests/test_macos_runtime.py
           --junitxml=contracts-macos-runtime.xml
+      - name: Linux 155 generator restoration contracts
+        if: ${{ !cancelled() && runner.os == 'Linux' }}
+        run: >-
+          python -X utf8 -m pytest -q
+          tools/tests/test_linux155_generators.py tools/tests/test_install_linux155_generators.py
+          tools/tests/test_linux155_declarations.py
+          --junitxml=contracts-linux155-generators.xml
       - name: Node SDK regression
         if: ${{ !cancelled() }}
         run: npm test --prefix sdk/node
@@ -145,4 +155,5 @@ jobs:
             source-preimages.json
             contracts-python.xml
             contracts-macos-runtime.xml
+            contracts-linux155-generators.xml
           if-no-files-found: warn

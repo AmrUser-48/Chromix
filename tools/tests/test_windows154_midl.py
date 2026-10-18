@@ -160,11 +160,14 @@ class Windows154MidlIdentityTest(unittest.TestCase):
         self.assertEqual(result["status"], "repaired")
         self.assertEqual(json.loads((self.src / repair.RECORD).read_text())["identity"], ARM_IDENTITY)
 
-    def test_arm64_manifest_restore_identity_matches_final_repair_pin(self):
-        from tools.fetch_upstream_cache import ROOT
+    def test_arm64_fixture_restore_identity_matches_historical_repair_pin(self):
         from tools.restore_upstream_cache import identities
+        from tools.tests.test_fetch_upstream_cache_arm64 import FinalArm64UpstreamCacheTest
 
-        identity, _, _ = identities(ROOT, "windows", "arm64")
+        support = FinalArm64UpstreamCacheTest()
+        support.setUp()
+        self.addCleanup(support.doCleanups)
+        identity, _, _ = identities(support.root, "windows", "arm64")
         self.assertEqual(identity, ARM_IDENTITY)
         self.assertEqual(self.apply(arch="arm64", identity=identity)["status"], "repaired")
 
@@ -503,6 +506,7 @@ class Windows154MidlPrepareTest(unittest.TestCase):
     def setUp(self):
         from tools import prepare_restored_build as prepare
         from tools import restore_upstream_cache as restore
+        from tools.platform_pins import load_shared_pins
         from tools.tests.test_prepare_restored_build import PrepareRestoredBuildTest
 
         self.prepare, self.restore = prepare, restore
@@ -511,6 +515,17 @@ class Windows154MidlPrepareTest(unittest.TestCase):
         self.addCleanup(support.doCleanups)
         receipt = support.fixture("windows", "x64")
         repo = support.fixture_repo
+        version = IDENTITY["chromium_version"]
+        pins = load_shared_pins(repo)
+        pins.update(WindowsChromiumVersion=version, WindowsUngoogledVersion=version + "-1",
+                    WindowsUngoogledCommit=IDENTITY["ungoogled_commit"],
+                    UngoogledWindowsVersion=IDENTITY["head_branch"],
+                    UngoogledWindowsCommit=IDENTITY["head_sha"])
+        support.write(repo / "build/ungoogled-revisions.psd1",
+                      "@{\n" + "".join(f'  {key} = "{value}"\n' for key, value in pins.items()) + "}\n")
+        support.write(repo / "CHROMIUM_WINDOWS_VERSION", version + "\n")
+        support.write(support.src / "chrome/VERSION", "\n".join(
+            f"{key}={value}" for key, value in zip(("MAJOR", "MINOR", "BUILD", "PATCH"), version.split("."))))
         path = repo / "build/upstream-cache.json"
         manifest = json.loads(path.read_text())
         source = {key: value for key, value in IDENTITY.items()

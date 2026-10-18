@@ -63,6 +63,20 @@ LINUX154_ESBUILD_ARTIFACTS = {
     "arm64": (11283212930, "build-cache-arm64", 5672718015,
               "sha256:4e4cdf8e1a4f4baeb54a6d62906fb1f02da6fe0136f016868f823f7f28bda21c"),
 }
+LINUX155_ESBUILD_IDENTITY = {
+    "chromium_version": "155.0.8059.39",
+    "ungoogled_commit": "ffeb45a2bb88bc56a1dfed31410aeb10e9efcd5a",
+    "head_sha": "025d99db1673a21992534551598b73ca79360762",
+    "platform": "linux", "repository": "ungoogled-software/ungoogled-chromium-portablelinux",
+    "repository_id": 177191557, "head_branch": "155.0.8059.39-1", "event": "push",
+    "workflow_path": ".github/workflows/build.yml", "run_id": 37906884923,
+}
+LINUX155_ESBUILD_ARTIFACTS = {
+    "x64": (11652570743, "build-cache-x86_64", 4733942111,
+            "sha256:34182b5fdbec949fbe29d320a7d7200eb9cd4b284c18b8daa0c516ab4816fa1a"),
+    "arm64": (11656090008, "build-cache-arm64", 5677163828,
+              "sha256:a4c0bfd8020cd34f27a652ae449f9e8547a468b8b813a11a64acf8a0891db447"),
+}
 MAC154_ESBUILD_LINK = "third_party/devtools-frontend/src/node_modules/esbuild"
 MAC154_ESBUILD_ALIAS = "third_party/devtools-frontend/src/node_modules/.bin/esbuild"
 MAC154_ESBUILD_IDENTITY = {
@@ -187,16 +201,22 @@ def is_known_external_link(relative: str, platform: str, identity: dict | None =
     if relative in (LINUX154_ESBUILD_LINK, LINUX154_ESBUILD_ALIAS):
         if platform not in ("linux", "macos") or not isinstance(identity, dict):
             return False
-        artifacts = MAC154_ESBUILD_ARTIFACTS if platform == "macos" else LINUX154_ESBUILD_ARTIFACTS
-        source_identity = MAC154_ESBUILD_IDENTITY if platform == "macos" else LINUX154_ESBUILD_IDENTITY
+        records = ((MAC154_ESBUILD_IDENTITY, MAC154_ESBUILD_ARTIFACTS),) if platform == "macos" else (
+            (LINUX154_ESBUILD_IDENTITY, LINUX154_ESBUILD_ARTIFACTS),
+            (LINUX155_ESBUILD_IDENTITY, LINUX155_ESBUILD_ARTIFACTS))
         arch = identity.get("arch")
-        if not isinstance(arch, str) or arch not in artifacts:
+        if not isinstance(arch, str):
             return False
-        artifact_id, name, size, digest = artifacts[arch]
-        expected = dict(source_identity, arch=arch, artifact_id=artifact_id,
-                        artifact_name=name, artifact_size_in_bytes=size, artifact_digest=digest)
-        return (identity == expected
-                and all(type(identity[key]) is type(value) for key, value in expected.items()))
+        for source_identity, artifacts in records:
+            if arch not in artifacts:
+                continue
+            artifact_id, name, size, digest = artifacts[arch]
+            expected = dict(source_identity, arch=arch, artifact_id=artifact_id,
+                            artifact_name=name, artifact_size_in_bytes=size, artifact_digest=digest)
+            if (identity == expected
+                    and all(type(identity[key]) is type(value) for key, value in expected.items())):
+                return True
+        return False
     if platform != "macos":
         return False
     if relative in MAC_EXTERNAL_TOOL_LINKS:

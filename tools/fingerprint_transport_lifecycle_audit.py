@@ -149,6 +149,11 @@ def _assess(report):
 
 NETLOG_MAX_BYTES = 8 * 1024 * 1024
 NETLOG_READ_LIMIT = NETLOG_MAX_BYTES + 1024 * 1024
+NETLOG_GLOBAL_LIFECYCLE_EVENTS = frozenset({
+    'CERT_VERIFY_PROC_CREATED',
+    'QUIC_SESSION_POOL_MARK_ALL_ACTIVE_SESSIONS_GOING_AWAY',
+    'QUIC_SESSION_POOL_CLOSE_ALL_SESSIONS',
+})
 
 
 def diagnostic_directory(output):
@@ -610,8 +615,9 @@ def summarize_netlog(value, responses, report):
         errors.extend(b['issues'])
     relevant = []
     for index, (kind, sid, name, event) in enumerate(normalized):
-        global_config = any(word in name for word in ('CONFIG_CHANGED', 'CERTIFICATE_DATABASE', 'NETWORK_CHANGED',
-                                                       'IP_ADDRESSES_CHANGED', 'NETWORK_CONNECTIVITY_CHANGED'))
+        global_config = (name in NETLOG_GLOBAL_LIFECYCLE_EVENTS or
+            any(word in name for word in ('CONFIG_CHANGED', 'CERTIFICATE_DATABASE', 'NETWORK_CHANGED',
+                                         'IP_ADDRESSES_CHANGED', 'NETWORK_CONNECTIVITY_CHANGED')))
         if not global_config and ((kind, sid) not in selected or not name.startswith(('HTTP2_', 'SOCKET_', 'SSL_', 'TCP_'))):
             continue
         if len(relevant) < 4096:
@@ -621,7 +627,61 @@ def summarize_netlog(value, responses, report):
     return {'event_count': len(events), 'events': relevant, 'bindings': bindings,
         'coverage': list(coverage.values()), 'binding_errors': sorted(set(errors)),
         'summary_limit_reached': len(relevant) == 4096,
+        'close_analysis': netlog_close_analysis(relevant, bindings, list(coverage.values()), len(relevant) == 4096),
         'unresolved_bindings': sum(b['binding_status'] != 'linked' for b in bindings)}
+
+
+def netlog_close_analysis(events, bindings, coverage, truncated):
+    """Describe native close observations without assigning a caller or cause."""
+    candidates = [e for e in events if e['scope'] == 'global_candidate']
+    rows = []
+    for connection in coverage:
+        socket_id, session_id = connection['socket_source_id'], connection['session_source_id']
+        bound = [b for b in bindings if b['socket_source_id'] == socket_id and b['session_source_id'] == session_id]
+        session = [e for e in events if e['scope'] == 'owned_socket_dependency' and
+                   e['source'] == {'type': 'HTTP2_SESSION', 'id': session_id}]
+        starts = [e for e in session if e['type'] == 'HTTP2_SESSION_INITIALIZED']
+        closes = [e for e in session if e['type'] == 'HTTP2_SESSION_CLOSE']
+        goaways = [e for e in session if e['type'] == 'HTTP2_SESSION_RECV_GOAWAY']
+        ends = [e for e in events if e['source'] == {'type': 'SOCKET', 'id': socket_id} and
+                e['type'] == 'SOCKET_ALIVE' and e['phase'] == 'PHASE_END']
+        complete = (not truncated and not connection['issues'] and bool(bound) and
+                    all(b['binding_status'] == 'linked' for b in bound) and
+                    len(starts) == len(closes) == len(ends) == 1)
+        during = []
+        observation = 'incomplete_or_ambiguous'
+        if complete:
+            start, close = int(starts[0]['time']), int(closes[0]['time'])
+            during = [e['derivative_index'] for e in candidates if start <= int(e['time']) <= close]
+            if goaways:
+                observation = 'peer_goaway_observed'
+            elif closes[0]['params'].get('net_error') == 0:
+                observation = 'ok_close_without_observed_peer_goaway'
+            else:
+                observation = 'error_close_without_observed_peer_goaway'
+        rows.append({'connection_id': connection['connection_id'], 'socket_source_id': socket_id,
+            'session_source_id': session_id, 'contexts': sorted({b['context'] for b in bound}),
+            'binding_status': 'linked' if complete else 'unresolved',
+            'initialization_event_indexes': [e['derivative_index'] for e in starts],
+            'close_events': [{'derivative_index': e['derivative_index'], 'time': e['time'],
+                              'net_error': e['params'].get('net_error')} for e in closes],
+            'socket_end_event_indexes': [e['derivative_index'] for e in ends],
+            'recv_goaway_event_indexes': [e['derivative_index'] for e in goaways],
+            'global_candidate_indexes_during_session': during,
+            'observation': observation, 'cause': 'not_proven'})
+    return {'gating': False, 'clock': 'netlog_ticks', 'connections': rows,
+        'global_candidate_event_indexes': [e['derivative_index'] for e in candidates],
+        'summary_truncated': truncated,
+        'qualification': 'Candidate windows use inclusive native ticks; equal ticks do not establish ordering. '
+            'CERT_VERIFY_PROC_CREATED is proc creation, not proof of a verifier update notification. '
+            'Global certificate/config/QUIC pool events have no proven link to an owned NetworkContext. '
+            'A final net_error of 0 does not recover the original going-away reason. '
+            'No matching event does not prove that no update occurred. No server/CDP clock comparison is made.',
+        'additional_chromium_instrumentation_required': [
+            'H2 MakeUnavailable/StartGoingAway original error, caller/change type and session source ID',
+            'Certificate configuration generation and observer notification linked to NetworkContext/session',
+            'SPKI bypass hit and QUIC pool going-away reason as non-sensitive enums/booleans',
+            'H2 drain reason as a fixed enum; a finished-going-away reason alone does not prove the trigger']}
 
 
 def failure_diagnostics(report):

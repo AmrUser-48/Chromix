@@ -534,18 +534,21 @@ def prepare_linux_typescript(src: Path, *, host_arch: str, repair=False, repo: P
                              before_publish=None) -> dict:
     """Prepare pinned portablelinux DevTools generators; never use host tsc/esbuild."""
     try:
-        from . import linux_restored_generators as linux154
+        from . import linux_restored_generators as linux_generators
     except ImportError:
-        import linux_restored_generators as linux154
+        import linux_restored_generators as linux_generators
     pins = load_pins(repo, "linux")
     identity = tuple(pins[key] for key in ("ChromiumVersion", "UngoogledCommit", "UngoogledLinuxCommit"))
-    if identity == linux154.PINS:
-        portable, repaired = linux154.TYPESCRIPT_PORTABLE, linux154.TYPESCRIPT_REPAIRED
-    elif identity == ("153.0.8010.36", "dd8fb9b5c837982faf41ba58cd30a5664e77c329",
-                      "a5ffa5e4a9fb722b97a5cf7966e29450a150c3dd"):
+    profile = None
+    if identity == ("153.0.8010.36", "dd8fb9b5c837982faf41ba58cd30a5664e77c329",
+                    "a5ffa5e4a9fb722b97a5cf7966e29450a150c3dd"):
         portable, repaired = TYPESCRIPT_PORTABLE, TYPESCRIPT_REPAIRED
     else:
-        raise ValueError("unverified Linux TypeScript wrapper pins/host")
+        try:
+            profile = linux_generators.generator_profile(identity)
+        except ValueError as error:
+            raise ValueError("unverified Linux TypeScript wrapper pins/host") from error
+        portable, repaired = profile["typescript_portable"], profile["typescript_repaired"]
     if host_arch not in repaired:
         raise ValueError("unverified Linux TypeScript wrapper pins/host")
 
@@ -557,12 +560,12 @@ def prepare_linux_typescript(src: Path, *, host_arch: str, repair=False, repo: P
         return path
 
     wrapper = regular(TYPESCRIPT_WRAPPER)
-    original = linux154.read_verified(src, TYPESCRIPT_WRAPPER)
+    original = linux_generators.read_verified(src, TYPESCRIPT_WRAPPER)
     before = hashlib.sha256(original).hexdigest()
     if before not in (portable, *repaired.values()):
         raise ValueError("unknown restored Linux TypeScript wrapper")
     package = regular(TYPESCRIPT_PACKAGE + "/package.json")
-    if hashlib.sha256(linux154.read_verified(src, TYPESCRIPT_PACKAGE + "/package.json")).hexdigest() != (
+    if hashlib.sha256(linux_generators.read_verified(src, TYPESCRIPT_PACKAGE + "/package.json")).hexdigest() != (
             "3004f96b830f722041ea418dc29642d934fc64dcc207992e22a1dc37c7b270ae"):
         raise ValueError("unexpected pinned TypeScript package metadata")
     for name in ("tsc.js", "_tsc.js", *TYPESCRIPT_LIBRARIES):
@@ -577,17 +580,18 @@ def prepare_linux_typescript(src: Path, *, host_arch: str, repair=False, repo: P
         for name in sorted(files):
             path = regular((Path(directory) / name).relative_to(src).as_posix())
             digest.update(json.dumps([path.relative_to(package.parent).as_posix(),
-                                      hashlib.sha256(linux154.read_verified(src, path.relative_to(src).as_posix())).hexdigest()]).encode())
+                                      hashlib.sha256(linux_generators.read_verified(src, path.relative_to(src).as_posix())).hexdigest()]).encode())
 
-    if identity == linux154.PINS and digest.hexdigest() != linux154.TYPESCRIPT_TREE:
-        raise ValueError("unknown restored Linux 154 TypeScript package bytes/inventory")
+    if profile is not None and digest.hexdigest() != profile["typescript_tree"]:
+        raise ValueError("unknown restored Linux TypeScript package bytes/inventory")
     desired = repaired[host_arch]
     result = {"path": TYPESCRIPT_WRAPPER, "sha256": before,
               "package_sha256": digest.hexdigest(), "version": "6.0.2",
               "node": tool_paths("linux", host_arch)["node"].as_posix(),
               "repair_needed": before != desired}
-    if identity == linux154.PINS:
-        result["esbuild"] = linux154.prepare_esbuild(src, host_arch=host_arch, before_publish=before_publish)
+    if profile is not None:
+        result["esbuild"] = linux_generators.prepare_esbuild(
+            src, host_arch=host_arch, before_publish=before_publish, pins=identity)
         result["repair_needed"] |= result["esbuild"]["repair_needed"]
         if repair and result["esbuild"]["install_needed"]:
             raise ValueError("pinned native esbuild/module must be installed before finish")
@@ -601,9 +605,9 @@ def prepare_linux_typescript(src: Path, *, host_arch: str, repair=False, repo: P
                                check=False, timeout=30)
     if completed.returncode or completed.stdout.strip() != "Version 6.0.2":
         raise ValueError(f"pinned TypeScript probe failed: {completed.stdout[:2000]}")
-    if identity == linux154.PINS:
-        result["esbuild"] = linux154.prepare_esbuild(src, host_arch=host_arch, repair=True,
-                                                      before_publish=before_publish)
+    if profile is not None:
+        result["esbuild"] = linux_generators.prepare_esbuild(
+            src, host_arch=host_arch, repair=True, before_publish=before_publish, pins=identity)
     if before != desired:
         lines = original.splitlines(keepends=True)
         start = lines.index(b"def GetBinaryPath():\n")
@@ -628,9 +632,9 @@ def GetNodePath():
         restored = b"".join(lines[:start]) + getter + b"".join(tail)
         if hashlib.sha256(restored).hexdigest() != desired:
             raise ValueError("unexpected repaired TypeScript wrapper")
-        if linux154.read_verified(src, TYPESCRIPT_WRAPPER) != original:
+        if linux_generators.read_verified(src, TYPESCRIPT_WRAPPER) != original:
             raise ValueError("TypeScript wrapper changed during preparation")
-        linux154.atomic_wrapper_replace(src, original, restored, before_publish=before_publish)
+        linux_generators.atomic_wrapper_replace(src, original, restored, before_publish=before_publish)
     result.update(sha256=desired, repair_needed=False)
     return result
 

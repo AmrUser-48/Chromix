@@ -236,11 +236,18 @@ def test_ready_source_markers_and_cache_identity_use_same_windows_override(repos
     assert identity["chromium_version"] == donor["chromium_version"] == manifest["chromium_version"] == WINDOWS
     assert identity["ungoogled_commit"] == values["UngoogledCommit"]
     assert identity["head_sha"] == values["UngoogledWindowsCommit"]
+    for name in ("patch_selection.py", "verify_patch_stack.py", "apply_restored_patches.py"):
+        shutil.copyfile(REPO / "tools" / name, repository / "tools" / name)
+    patch = (b"diff --git a/example.txt b/example.txt\n"
+             b"--- a/example.txt\n+++ b/example.txt\n"
+             b"@@ -1 +1 @@\n-original\n+patched\n")
     (repository / "patches").mkdir()
-    (repository / "patches/series").write_text("")
+    (repository / "patches/series").write_text("patches/example.patch\n")
+    (repository / "patches/example.patch").write_bytes(patch)
     src = repository.parent / "work/src"
     src.mkdir(parents=True)
-    patch_key = hashlib.sha256(b"").hexdigest()
+    (src / "example.txt").write_bytes(b"patched\n")
+    patch_key = hashlib.sha256(patch).hexdigest()
     version = SHARED if stale else WINDOWS
     ready = "|".join((version, values["UngoogledCommit"], values["UngoogledWindowsCommit"], patch_key))
     markers = {

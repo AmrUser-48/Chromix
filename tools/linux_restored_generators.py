@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exact Linux 154 restored DevTools identities and local esbuild provisioning."""
+"""Exact versioned Linux restored DevTools identities and local esbuild provisioning."""
 from __future__ import annotations
 
 import hashlib
@@ -79,6 +79,141 @@ SOURCE_REPAIRS = {
         b"ESBUILD_LOCATION = path.join(ROOT_DIRECTORY_OF_REPOSITORY, 'third_party',\n"
         b"                             'esbuild', 'chromix-linux', 'esbuild')"),
 }
+
+
+PINS155 = ("155.0.8059.39", "ffeb45a2bb88bc56a1dfed31410aeb10e9efcd5a",
+           "025d99db1673a21992534551598b73ca79360762")
+# Rebuilt from cd7bfad9bba968ac23ba67e538f9e1d499991d25, donor patches and core domains.
+TYPESCRIPT155_PORTABLE = "99034dad55a0805c052f928fca1f03c335a59a4e61bc3ad4c183bb3c0ff4c471"
+TYPESCRIPT155_REPAIRED = {
+    "x64": "309b0cb8a713af2d493bdf99dcabdc16a1760f4f4c450a5b524496086ef6baac",
+    "arm64": "492b26da4772c7971149ae05739372b245f683bccf92334560fa4fa70011c52e",
+}
+TYPESCRIPT155_TREE = "2dda99b559c5bbc04a1e5ec68440bf9afc14866593f4d9ca0de6c00556d2fb91"
+ESBUILD155_VERSION = "0.28.2"
+LOCK155_SHA256 = "0000e82b22813820d5ca00d1658f3d52ceac681f91f84f4812c051fb75ecc4bc"
+MODULE155_FILES = {
+    "bin/esbuild": "183d6ead2dbc3af51aec767d5395f86fe54fbbc2d2aa8e54feb4e31d76a62f7e",
+    "install.js": "612294e278914443bdcf81cb17f54afec34dbdd2ebd999a6ee187912320cc315",
+    "lib/main.js": "61ec0ba144ff93f4bf0e96ad6fab6f430ede0aa13e27ace8063ed63ba416b3cd",
+    "package.json": "9d0bc453f4e791553c4cc2298ba023b409241fd9801e494741666eb0f6051490",
+    "LICENSE.md": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681",
+    "README.md": "6d481cd60ec3c679e5e395f547ab4221147f35642894f6b95a8df38fd25c87bd",
+    "lib/main.d.ts": "e078310f23f0ccfa28a6ac81b5fad81f27150e921f92ab6e648caab42e2d9a14",
+}
+ARCHIVES155 = {
+    "module": ("https://registry.npmjs.org/esbuild/-/esbuild-0.28.2.tgz",
+               "e045f94c235c7adc50e77ba2a579c7bec41b496b6b47c3a7845f7c1e19959a88"),
+    "x64": ("https://registry.npmjs.org/@esbuild/linux-x64/-/linux-x64-0.28.2.tgz",
+               "9573bb2233aab0f9ea7647d5cca9726113cc1768de61d66b17267f4db84488f6"),
+    "arm64": ("https://registry.npmjs.org/@esbuild/linux-arm64/-/linux-arm64-0.28.2.tgz",
+               "a96dbfa41d3ef5dbd1ef22b1c10d5187be9267e86093a870f06402a7ec931596"),
+}
+BINARY155_HASHES = {
+    "arm64": "90bd269553d258e80b19e3ccab4f98f0831f87442a2f056510ce24fd1b425fc2",
+    "x64": "e1698a3d5c6c0798fee4fd3b5cc816651f460c63d390a7a26ea4beb0b1884100",
+}
+SOURCE155_REPAIRS = {
+    "front_end/ui/legacy/ARIAUtils.ts": (
+        "b8bdfdb829af51ba09253de4cea27880a9481871b82ca5d673a7bdad96cacd4d",
+        "29e9150b81c4c88e60bd29441182e2d1acc5ddbc349bcbb4dfe0527b7bc484ad",
+        b"getOrCreateAnnouncerElement(container: HTMLElement = document.body,",
+        b"getOrCreateAnnouncerElement(container: HTMLElement|undefined = document.body,",
+    ),
+    "front_end/ui/legacy/Widget.ts": (
+        "3d9bda48ca918b992bfe56d15f3c12847c5de64d1564291e1c680d08a24fd648",
+        "c2d260f5a0b5518824c41bed8e3f34e878985559a15380098570c7183821b78f",
+        b"readonly widgetParams?: Partial<WidgetT>)",
+        b"readonly widgetParams?: Partial<WidgetT>|undefined)",
+    ),
+    "scripts/build/esbuild.js": (
+        "7441e250f11d08744475e1a816d77c69aa265a9581380a475ff8313c80d63947",
+        "05f0876b590b92caf11117f3321fd3af842f8516c125bf5341c08c323ec3eb69",
+        b"    '/',\n"
+        b"    'usr',\n"
+        b"    'bin',\n",
+        b'    devtoolsRootPath(),\n'
+        b"    'third_party',\n"
+        b"    'esbuild',\n"
+        b"    'chromix-linux',\n",
+    ),
+    "scripts/build/ninja/bundle.gni": (
+        "470cd49b818adb42066bbd32edf4262fee0537c28e68f813c4f9762f84757e8f",
+        "dac1c09e5b97c287a76aa7c863a5e39f47eba164057020b3604bf796aa55dd92",
+        b'_esbuild = "/usr/bin/esbuild"',
+        b'_esbuild = devtools_location_prepend + "third_party/esbuild/chromix-linux/esbuild"',
+    ),
+    "scripts/build/typescript/typescript_vars.gni": (
+        "aa17ae85e0be06e7c593f1e8ff947b0795565b311b8938753366836085f88572",
+        "36650c33dd69e4cab6d51fa25b77170fe9a34a0fa2874afdc5a2b80044354a73",
+        (
+            b'  tsc_binary = "/usr/bin/tsc"',
+            b'# Standard TypeScript library definitions',
+            b'typescript_base_inputs = [ tsc_binary ]',
+        ),
+        (
+            b'  tsc_binary = devtools_location_prepend + "node_modules/typescript/lib/tsc.js"',
+            b'if (host_os == "linux") {\n'
+            b'  tsc_node = "//third_party/node/linux/node-linux-${host_cpu}/bin/node"\n'
+            b'  tsc_command = [\n'
+            b'    rebase_path(tsc_node, root_build_dir),\n'
+            b'    rebase_path(tsc_binary, root_build_dir),\n'
+            b'  ]\n'
+            b'} else {\n'
+            b'  tsc_command = [ rebase_path(tsc_binary, root_build_dir) ]\n'
+            b'}\n'
+            b'\n'
+            b'# Standard TypeScript library definitions',
+            b'typescript_base_inputs = [ tsc_binary ]\n'
+            b'if (host_os == "linux") {\n'
+            b'  typescript_base_inputs += [ tsc_node ]\n'
+            b'}',
+        ),
+    ),
+    "scripts/build/typescript/ts_type_check.gni": (
+        "bd87baff09d8e2e504fd93f8db58081491bf2c3d3eb5de3a1250ad5b7268a5fb",
+        "cfcb7d21806175c969cee489315145c96829e25e79ff9e14bdc2e7f13aa8d208",
+        b'      rebase_path(tsc_binary, root_build_dir),',
+        b'    ] + tsc_command + [',
+    ),
+    "scripts/build/typescript/typescript.gni": (
+        "b9b10d5452d78217851fd404dd48775e38a7a0479f7b937cc626a5de347bcf3f",
+        "aa51f9621055f57f3bc98bfd8268ce98061280088f3c31b2231bbce94c2f081c",
+        (
+            b'rebase_path(_dts_outputs, root_build_dir) + [ "--" ] + [\n'
+            b'          rebase_path(tsc_binary, root_build_dir),',
+            b'rebase_path(_stamp_file, root_build_dir),\n'
+            b'        "--",\n'
+            b'        rebase_path(tsc_binary, root_build_dir),',
+            b'rebase_path(_js_outputs, root_build_dir) + [ "--" ] + [\n'
+            b'            rebase_path(tsc_binary, root_build_dir),',
+        ),
+        (
+            b'rebase_path(_dts_outputs, root_build_dir) + [ "--" ] + tsc_command + [',
+            b'rebase_path(_stamp_file, root_build_dir),\n'
+            b'        "--",\n'
+            b'      ] + tsc_command + [',
+            b'rebase_path(_js_outputs, root_build_dir) + [ "--" ] + tsc_command + [',
+        ),
+    ),
+}
+
+
+def generator_profile(pins: tuple = PINS) -> dict:
+    """Select independent versioned pins; never infer a donor from its files."""
+    if type(pins) is not tuple or not all(type(value) is str for value in pins):
+        raise ValueError("unverified Linux generator pins")
+    if pins == PINS:
+        return {"version": ESBUILD_VERSION, "lock": LOCK_SHA256,
+                "module": MODULE_FILES, "archives": ARCHIVES, "binaries": BINARY_HASHES,
+                "sources": SOURCE_REPAIRS, "typescript_portable": TYPESCRIPT_PORTABLE,
+                "typescript_repaired": TYPESCRIPT_REPAIRED, "typescript_tree": TYPESCRIPT_TREE}
+    if pins == PINS155:
+        return {"version": ESBUILD155_VERSION, "lock": LOCK155_SHA256,
+                "module": MODULE155_FILES, "archives": ARCHIVES155, "binaries": BINARY155_HASHES,
+                "sources": SOURCE155_REPAIRS, "typescript_portable": TYPESCRIPT155_PORTABLE,
+                "typescript_repaired": TYPESCRIPT155_REPAIRED, "typescript_tree": TYPESCRIPT155_TREE}
+    raise ValueError("unverified Linux generator pins")
 
 
 def sha256(data: bytes) -> str:
@@ -415,7 +550,8 @@ def regular(src: Path, relative: str) -> Path:
     return path
 
 
-def module_identity(src: Path) -> dict | None:
+def module_identity(src: Path, *, pins: tuple = PINS) -> dict | None:
+    profile = generator_profile(pins)
     root = safe_path(src, ESBUILD_MODULE)
     if not root.exists():
         return None
@@ -431,18 +567,19 @@ def module_identity(src: Path) -> dict | None:
             relative = (Path(directory) / name).relative_to(src).as_posix()
             path = regular(src, relative)
             files[path.relative_to(root).as_posix()] = sha256(read_verified(src, relative))
-    if files != MODULE_FILES:
+    if files != profile["module"]:
         raise ValueError("unknown esbuild module bytes/inventory")
     return {"path": ESBUILD_MODULE, "files": files}
 
 
-def binary_identity(src: Path) -> dict | None:
+def binary_identity(src: Path, *, pins: tuple = PINS) -> dict | None:
+    profile = generator_profile(pins)
     path = safe_path(src, ESBUILD_BINARY)
     if not path.exists():
         return None
     payload = read_verified(src, ESBUILD_BINARY)
     digest = sha256(payload)
-    host = next((arch for arch, value in BINARY_HASHES.items() if value == digest), None)
+    host = next((arch for arch, value in profile["binaries"].items() if value == digest), None)
     if host is None:
         raise ValueError("unknown esbuild native binary bytes")
     if (payload[:6] != b"\x7fELF\x02\x01" or len(payload) < 20
@@ -452,35 +589,44 @@ def binary_identity(src: Path) -> dict | None:
     return {"path": ESBUILD_BINARY, "sha256": digest, "host_arch": host}
 
 
-def source_plan(src: Path) -> tuple[dict, list]:
-    if sha256(read_verified(src, LOCK)) != LOCK_SHA256:
-        raise ValueError("unknown Linux 154 DevTools package lock")
+def source_plan(src: Path, *, pins: tuple = PINS) -> tuple[dict, list]:
+    profile = generator_profile(pins)
+    if sha256(read_verified(src, LOCK)) != profile["lock"]:
+        raise ValueError("unknown Linux DevTools package lock")
     identities, changes = {}, []
-    for relative, (original_hash, repaired_hash, old, new) in SOURCE_REPAIRS.items():
+    for relative, (original_hash, repaired_hash, old, new) in profile["sources"].items():
         name = DEVTOOLS + "/" + relative
         regular(src, name)
         payload, metadata = _read_verified_with_metadata(src, name)
         digest = sha256(payload)
         if digest not in (original_hash, repaired_hash):
-            raise ValueError(f"unknown Linux 154 esbuild source: {name}")
+            raise ValueError(f"unknown Linux esbuild source: {name}")
         identities[name] = {"sha256": digest, "original_sha256": original_hash,
                             "repaired_sha256": repaired_hash}
         if digest != repaired_hash:
-            if payload.count(old) != 1 or sha256(payload.replace(old, new)) != repaired_hash:
-                raise ValueError(f"unexpected Linux 154 esbuild repair: {name}")
-            changes.append((name, payload, payload.replace(old, new), metadata))
+            restored = payload
+            replacements = zip(old, new) if isinstance(old, tuple) else ((old, new),)
+            for before, after in replacements:
+                if restored.count(before) != 1:
+                    raise ValueError(f"unexpected Linux esbuild repair: {name}")
+                restored = restored.replace(before, after, 1)
+            if sha256(restored) != repaired_hash:
+                raise ValueError(f"unexpected Linux esbuild repair: {name}")
+            changes.append((name, payload, restored, metadata))
     return identities, changes
 
 
-def prepare_esbuild(src: Path, *, host_arch: str, repair=False, before_publish=None) -> dict:
+def prepare_esbuild(src: Path, *, host_arch: str, repair=False, before_publish=None,
+                    pins: tuple = PINS) -> dict:
     """Inspect without executing; repair only after exact package and native-host checks."""
-    if host_arch not in BINARY_HASHES:
+    profile = generator_profile(pins)
+    if host_arch not in profile["binaries"]:
         raise ValueError("unsupported Linux esbuild host")
-    sources, changes = source_plan(src)
-    module, binary = module_identity(src), binary_identity(src)
+    sources, changes = source_plan(src, pins=pins)
+    module, binary = module_identity(src, pins=pins), binary_identity(src, pins=pins)
     install_needed = module is None or binary is None or binary["host_arch"] != host_arch
-    result = {"version": ESBUILD_VERSION, "host_arch": host_arch, "sources": sources,
-              "lock_sha256": LOCK_SHA256, "module": module, "binary": binary,
+    result = {"version": profile["version"], "host_arch": host_arch, "sources": sources,
+              "lock_sha256": profile["lock"], "module": module, "binary": binary,
               "install_needed": install_needed, "repair_needed": install_needed or bool(changes)}
     if not repair:
         return result
@@ -489,21 +635,21 @@ def prepare_esbuild(src: Path, *, host_arch: str, repair=False, before_publish=N
     command = [str(src / ESBUILD_BINARY), "--version"]
     completed = subprocess.run(command, cwd=src, text=True, stdout=subprocess.PIPE,
                                stderr=subprocess.STDOUT, check=False, timeout=30)
-    if completed.returncode or completed.stdout.strip() != ESBUILD_VERSION:
+    if completed.returncode or completed.stdout.strip() != profile["version"]:
         raise ValueError(f"pinned esbuild probe failed: {completed.stdout[:2000]}")
     # No restored JS is executed by the module-resolution probe.
     node = src / f"third_party/node/linux/node-linux-{host_arch}/bin/node"
     script = ("const p=require('node:path');const r=require.resolve('esbuild');"
               "if(r!==p.resolve('node_modules/esbuild/lib/main.js'))process.exit(1);"
               "process.env.ESBUILD_BINARY_PATH=process.argv[1];"
-              "const e=require('esbuild');if(e.version!=='0.25.1')process.exit(2);"
+              f"const e=require('esbuild');if(e.version!=={json.dumps(profile['version'])})process.exit(2);"
               "e.transformSync('const n: number = 1',{loader:'ts'});")
     completed = subprocess.run([str(node), "-e", script, str(src / ESBUILD_BINARY)],
                                cwd=src / DEVTOOLS, text=True, stdout=subprocess.PIPE,
                                stderr=subprocess.STDOUT, check=False, timeout=30)
     if completed.returncode:
         raise ValueError(f"pinned esbuild module probe failed: {completed.stdout[:2000]}")
-    if module_identity(src) != module or binary_identity(src) != binary:
+    if module_identity(src, pins=pins) != module or binary_identity(src, pins=pins) != binary:
         raise ValueError("esbuild tools changed during preparation")
     for name, before, after, metadata in changes:
         if _read_verified_with_metadata(src, name) != (before, metadata):
@@ -516,12 +662,13 @@ def prepare_esbuild(src: Path, *, host_arch: str, repair=False, before_publish=N
     return result
 
 
-def archive_files(archive: Path, key: str) -> dict[str, bytes]:
+def archive_files(archive: Path, key: str, *, pins: tuple = PINS) -> dict[str, bytes]:
     """Verify the compressed archive before parsing; never extract or run install scripts."""
+    profile = generator_profile(pins)
     if archive.is_symlink() or not archive.is_file() or archive.stat().st_size > 32 * 1024**2:
         raise ValueError("invalid esbuild archive")
     data = archive.read_bytes()
-    if sha256(data) != ARCHIVES[key][1]:
+    if sha256(data) != profile["archives"][key][1]:
         raise ValueError(f"esbuild archive SHA256 mismatch: {key}")
     files, size = {}, 0
     with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as stream:
@@ -539,15 +686,16 @@ def archive_files(archive: Path, key: str) -> dict[str, bytes]:
 
 
 def install_esbuild(src: Path, *, host_arch: str, module_archive: Path, native_archive: Path,
-                    before_publish=None) -> dict:
+                    before_publish=None, pins: tuple = PINS) -> dict:
     """Install verified local artifacts only; caller must first verify the restore receipt."""
-    before = prepare_esbuild(src, host_arch=host_arch)
-    module = archive_files(module_archive, "module")
-    native = archive_files(native_archive, host_arch)
-    if {name: sha256(data) for name, data in module.items()} != MODULE_FILES:
+    profile = generator_profile(pins)
+    before = prepare_esbuild(src, host_arch=host_arch, pins=pins)
+    module = archive_files(module_archive, "module", pins=pins)
+    native = archive_files(native_archive, host_arch, pins=pins)
+    if {name: sha256(data) for name, data in module.items()} != profile["module"]:
         raise ValueError("unexpected esbuild module archive contents")
     if (set(native) != {"bin/esbuild", "package.json", "README.md"}
-            or sha256(native["bin/esbuild"]) != BINARY_HASHES[host_arch]):
+            or sha256(native["bin/esbuild"]) != profile["binaries"][host_arch]):
         raise ValueError("unexpected esbuild native archive contents")
     destination = safe_path(src, ESBUILD_MODULE)
     if before["module"] is None:
@@ -581,7 +729,7 @@ def install_esbuild(src: Path, *, host_arch: str, module_archive: Path, native_a
                 os.close(module_parent_fd)
     binary = safe_path(src, ESBUILD_BINARY)
     if before["binary"] is None or before["binary"]["host_arch"] != host_arch:
-        if binary_identity(src) != before["binary"]:
+        if binary_identity(src, pins=pins) != before["binary"]:
             raise ValueError("esbuild binary changed during installation")
         parent = ESBUILD_BINARY.rsplit("/", 1)[0]
         parent_fd, ancestors = _ensure_directory_fd(src, parent)
@@ -606,7 +754,7 @@ def install_esbuild(src: Path, *, host_arch: str, module_archive: Path, native_a
         finally:
             os.close(parent_fd)
             _close_all(ancestors)
-    return prepare_esbuild(src, host_arch=host_arch)
+    return prepare_esbuild(src, host_arch=host_arch, pins=pins)
 
 
 def atomic_wrapper_replace(src: Path, expected: bytes, replacement: bytes, *, before_publish=None) -> None:
