@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "kind": "linux155-compiled-png-recovery",
+  "kind": "linux155-core2-profile-and-recovery",
   "chromium_version": "155.0.8059.39",
   "core_commit": "ffeb45a2bb88bc56a1dfed31410aeb10e9efcd5a",
   "platform_commit": "025d99db1673a21992534551598b73ca79360762",
@@ -12,6 +12,14 @@
     {
       "path": "patches/chromium155-linux/0227-opaque-png-export-consistency.patch",
       "sha256": "4c048a50930c3541a3bb9e4442ad7f18e94c04ebccf86c0cfbfc286b15a70751"
+    },
+    {
+      "path": "patches/chromium155-linux/0228-core2-compiler-args.patch",
+      "sha256": "7b5b8dda825ff91201c386c5d20a0d76908394208d31f7694cd63e0cdc9fa70a"
+    },
+    {
+      "path": "patches/chromium155-linux/0229-core2-compiler-flags.patch",
+      "sha256": "e463c4649b1e736d7849c778c914b65581f8737d651b9a7ca31a78a86b9f07bd"
     }
   ]
 }
