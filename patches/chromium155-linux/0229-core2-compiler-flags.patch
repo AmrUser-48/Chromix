@@ -1,22 +1,8 @@
 diff --git a/build/config/compiler/BUILD.gn b/build/config/compiler/BUILD.gn
 --- a/build/config/compiler/BUILD.gn
 +++ b/build/config/compiler/BUILD.gn
-@@ -1074,6 +1074,9 @@
-   if (current_cpu == "x64") {
-     cflags += [
-       "-m64",
-       "-msse3",
-     ]
-+    if (chromix_core2_build && is_linux && target_os == "linux") {
-+      cflags += [ "-march=core2", "-mtune=core2" ]
-+    }
-     # Minimum SIMD support for devices running lacros.
-@@ -2278,3 +2281,7 @@
-   } else {
--    cflags = [ "-O2" ] + common_optimize_on_cflags
-+    if (chromix_core2_build && chromix_core2_opt_level == "O3") {
-+      cflags = [ "-O3" ] + common_optimize_on_cflags
-+    } else {
-+      cflags = [ "-O2" ] + common_optimize_on_cflags
-+    }
-     # The `-O3` for clang turns on extra optimizations compared to the standard
+@@ -80,1 +80,4 @@
+      cflags += [ "-msse3" ]
++      if (chromix_core2_build && is_linux && target_os == "linux") {
++        cflags += [ "-march=core2", "-mtune=core2" ]
++      }
