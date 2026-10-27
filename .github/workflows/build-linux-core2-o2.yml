@@ -20,7 +20,7 @@ permissions:
 
 concurrency:
   group: chromix-core2-o2-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   build:
