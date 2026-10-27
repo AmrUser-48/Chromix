@@ -156,9 +156,9 @@ import sys
 
 ninja, out, work = sys.argv[1:]
 args = (Path(out) / "args.gn").read_text(encoding="utf-8")
-if not re.search(r"(?m)^use_thin_lto\\s*=\\s*false\\s*$", args):
+if not re.search(r"(?m)^use_thin_lto\s*=\s*false\s*$", args):
     raise SystemExit("Core 2 O2 validation failed: use_thin_lto=false missing from generated args.gn")
-if not re.search(r"(?m)^thin_lto_enable_optimizations\\s*=\\s*false\\s*$", args):
+if not re.search(r"(?m)^thin_lto_enable_optimizations\s*=\s*false\s*$", args):
     raise SystemExit("Core 2 O2 validation failed: ThinLTO optimizations are not disabled")
 proc = subprocess.Popen([ninja, "-C", out, "-t", "commands", "chrome"],
                         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
@@ -177,10 +177,10 @@ required = ("-march=core2", "-mtune=core2", "-O2")
 missing = [flag for flag in required if flag not in command]
 if missing:
     raise SystemExit("Core 2 O2 validation failed: compiler command missing " + ", ".join(missing))
-if re.search(r"(?:^|\\s)-flto(?:=|\\s|$)", command):
+if re.search(r"(?:^|\s)-flto(?:=|\s|$)", command):
     raise SystemExit("Core 2 O2 validation failed: sampled compile command enables LTO")
 report = Path(work) / "core2-compiler-flags.txt"
-report.write_text("profile=core2-o2\\nThinLTO=false\\n" + command + "\\n", encoding="utf-8")
+report.write_text("profile=core2-o2\nThinLTO=false\n" + command + "\n", encoding="utf-8")
 print("Verified Core 2 compile flags: " + ", ".join(required) + "; ThinLTO disabled")
 print("Saved sampled compiler command: " + str(report))
 PY
