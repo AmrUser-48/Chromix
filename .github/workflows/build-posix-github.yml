@@ -30,6 +30,10 @@ on:
         required: false
         type: string
         default: fast
+      cpu_profile:
+        required: false
+        type: string
+        default: generic
       compile_jobs:
         required: false
         type: string
@@ -71,6 +75,7 @@ env:
   DEPOT_TOOLS_METRICS: '0'
   DEPOT_TOOLS_COLLECT_METRICS: '0'
   CHROMIX_JOBS: ${{ inputs.compile_jobs }}
+  CHROMIX_CPU_PROFILE: ${{ inputs.cpu_profile }}
 
 jobs:
   posix-1:
