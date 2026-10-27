@@ -2,16 +2,6 @@ name: build-linux-core2-o2
 run-name: "Chromix Linux x64 Core 2 O2 (no ThinLTO)"
 
 on:
-  push:
-    branches: [build/core2-o2]
-    paths:
-      - '.github/workflows/build-linux-core2-o2.yml'
-      - '.github/workflows/build-posix-github.yml'
-      - 'build/build.sh'
-      - 'build/args-core2-o2.gn'
-      - 'build/patch-additions-linux155.json'
-      - 'patches/chromium155-linux/**'
-      - 'tools/patch_selection.py'
   workflow_dispatch:
 
 permissions:
