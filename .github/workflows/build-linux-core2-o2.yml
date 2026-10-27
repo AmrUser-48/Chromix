@@ -1,0 +1,39 @@
+name: build-linux-core2-o2
+run-name: "Chromix Linux x64 Core 2 O2 (no ThinLTO)"
+
+on:
+  push:
+    branches: [build/core2-o2]
+    paths:
+      - '.github/workflows/build-linux-core2-o2.yml'
+      - '.github/workflows/build-posix-github.yml'
+      - 'build/build.sh'
+      - 'build/args-core2-o2.gn'
+      - 'build/patch-additions-linux155.json'
+      - 'patches/chromium155-linux/**'
+      - 'tools/patch_selection.py'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: chromix-core2-o2-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Linux x64 Core 2 O2, ThinLTO disabled
+    uses: ./.github/workflows/build-posix-github.yml
+    with:
+      platform: linux
+      arch: x64
+      runner: ubuntu-22.04
+      artifact: chromix-linux-x64
+      max-stages: 8
+      build_profile: fast
+      cpu_profile: core2-o2
+      compile_jobs: auto
+      use_upstream_cache: true
+    secrets: inherit
