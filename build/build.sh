@@ -126,17 +126,65 @@ printf 'target_cpu = "%s"\nv8_target_cpu = "%s"\n' "$ARCH" "$ARCH" > "$WORK/targ
 GN_INPUTS=("$WORK/tooling/ungoogled-chromium/flags.gn"
   "$WORK/tooling/ungoogled-chromium-portablelinux/flags.linux.gn"
   "$REPO/build/args.gn" "$WORK/target.gn")
+CPU_PROFILE="${CHROMIX_CPU_PROFILE:-generic}"
+case "$CPU_PROFILE" in
+  generic) ;;
+  core2-o2)
+    [ "$ARCH" = x64 ] || { echo "Core 2 profile requires Linux x64" >&2; exit 2; }
+    GN_INPUTS+=("$REPO/build/args-$CPU_PROFILE.gn")
+    ;;
+  *) echo "unsupported CHROMIX_CPU_PROFILE: $CPU_PROFILE" >&2; exit 2 ;;
+esac
 GN_OPTIONS=(--build-profile "$BUILD_PROFILE")
 if [ -f "$SRC/.chromix-upstream-restored.json" ]; then
   GN_INPUTS=("$OUT/args.gn" "${GN_INPUTS[@]}")
   GN_OPTIONS+=(--preserve-pgo-from "$OUT/args.gn")
 fi
 printf '==> Build profile: %s\n' "$BUILD_PROFILE"
+printf '==> CPU profile: %s\n' "$CPU_PROFILE"
 python3 "$REPO/tools/merge_gn_args.py" "${GN_OPTIONS[@]}" "$OUT/args.gn" "${GN_INPUTS[@]}"
 # GN's standalone bootstrap still treats this libstdc++ warning as an error.
 CXXFLAGS="${CXXFLAGS:+$CXXFLAGS }-Wno-deprecated-declarations" \
   python3 "$REPO/tools/bootstrap_gn.py" --src "$SRC" --out "$OUT"
 "$OUT/gn" gen "$OUT" --fail-on-unused-args
+if [ "$CPU_PROFILE" = core2-o2 ]; then
+  python3 - "$CHROMIX_NINJA" "$OUT" "$WORK" <<'PY'
+from pathlib import Path
+import re
+import subprocess
+import sys
+
+ninja, out, work = sys.argv[1:]
+args = (Path(out) / "args.gn").read_text(encoding="utf-8")
+if not re.search(r"(?m)^use_thin_lto\\s*=\\s*false\\s*$", args):
+    raise SystemExit("Core 2 O2 validation failed: use_thin_lto=false missing from generated args.gn")
+if not re.search(r"(?m)^thin_lto_enable_optimizations\\s*=\\s*false\\s*$", args):
+    raise SystemExit("Core 2 O2 validation failed: ThinLTO optimizations are not disabled")
+proc = subprocess.Popen([ninja, "-C", out, "-t", "commands", "chrome"],
+                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+command = None
+for line in proc.stdout:
+    if "clang" in line and " -c " in line:
+        command = line.strip()
+        break
+if command is None:
+    proc.kill()
+    proc.wait()
+    raise SystemExit("Core 2 O2 validation failed: no Clang compile command found")
+proc.terminate()
+proc.wait()
+required = ("-march=core2", "-mtune=core2", "-O2")
+missing = [flag for flag in required if flag not in command]
+if missing:
+    raise SystemExit("Core 2 O2 validation failed: compiler command missing " + ", ".join(missing))
+if re.search(r"(?:^|\\s)-flto(?:=|\\s|$)", command):
+    raise SystemExit("Core 2 O2 validation failed: sampled compile command enables LTO")
+report = Path(work) / "core2-compiler-flags.txt"
+report.write_text("profile=core2-o2\\nThinLTO=false\\n" + command + "\\n", encoding="utf-8")
+print("Verified Core 2 compile flags: " + ", ".join(required) + "; ThinLTO disabled")
+print("Saved sampled compiler command: " + str(report))
+PY
+fi
 chromix_report_upstream_plan chrome chrome_crashpad_handler chrome_sandbox
 chromix_build_restored_target linux "${CHROMIX_JOBS:-$(getconf _NPROCESSORS_ONLN)}" chrome chrome_crashpad_handler chrome_sandbox
 if [ "$HOST_ARCH" = "$ARCH" ]; then
