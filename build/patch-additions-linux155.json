@@ -19,7 +19,7 @@
     },
     {
       "path": "patches/chromium155-linux/0229-core2-compiler-flags.patch",
-      "sha256": "e463c4649b1e736d7849c778c914b65581f8737d651b9a7ca31a78a86b9f07bd"
+      "sha256": "560d4939105fbfc459f30279bd345ba2be2b18a4dcaa5d15584d03472107df15"
     }
   ]
 }
