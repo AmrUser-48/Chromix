@@ -1,0 +1,6 @@
+# Chromix Linux x64 profile for Intel Core 2 (T7250 / GMA X3100 era).
+# Keep Chromium's frame-pointer and vectorization defaults unchanged.
+chromix_core2_build = true
+chromix_core2_opt_level = "O2"
+use_thin_lto = false
+thin_lto_enable_optimizations = false
