@@ -1,8 +1,10 @@
 diff --git a/build/config/compiler/BUILD.gn b/build/config/compiler/BUILD.gn
 --- a/build/config/compiler/BUILD.gn
 +++ b/build/config/compiler/BUILD.gn
-@@ -80,1 +80,4 @@
-      cflags += [ "-msse3" ]
-+      if (chromix_core2_build && is_linux && target_os == "linux") {
-+        cflags += [ "-march=core2", "-mtune=core2" ]
-+      }
+@@ -327,3 +327,6 @@
+ config("compiler") {
+
+   cflags = []
++  if (chromix_core2_build && is_linux && target_os == "linux") {
++    cflags += [ "-march=core2", "-mtune=core2" ]
++  }
