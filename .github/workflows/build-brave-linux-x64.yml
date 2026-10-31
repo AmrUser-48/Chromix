@@ -35,6 +35,7 @@ env:
   BRAVE_CORE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.brave_core_tag || 'v1.98.64' }}
   CHROMIX_BRAVE_JOBS: ${{ github.event_name == 'workflow_dispatch' && inputs.compile_jobs || '4' }}
 
+jobs:
   build_1:
     name: Brave Linux x64 stage 1 (source sync + compile)
     runs-on: ubuntu-22.04
