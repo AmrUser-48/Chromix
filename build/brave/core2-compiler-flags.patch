@@ -1,7 +1,7 @@
 diff --git a/build/config/compiler/BUILD.gn b/build/config/compiler/BUILD.gn
 --- a/build/config/compiler/BUILD.gn
 +++ b/build/config/compiler/BUILD.gn
-@@ -327,6 +327,9 @@ config("compiler") {
+@@ -328,5 +328,8 @@ config("compiler") {
    asmflags = []
    cflags = []
 +  if (is_linux && is_a_target_toolchain && target_os == "linux" && target_cpu == "x64") {
