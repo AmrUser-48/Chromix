@@ -52,6 +52,8 @@ jobs:
 
       - uses: actions/checkout@v4
 
+        with:
+          ref: build/brave-linux-core2
       - name: Set up Node.js 24
         uses: actions/setup-node@v4
         with:
@@ -208,6 +210,8 @@ jobs:
 
       - uses: actions/checkout@v4
 
+        with:
+          ref: build/brave-linux-core2
       - name: Set up Node.js 24
         uses: actions/setup-node@v4
         with:
@@ -442,6 +446,8 @@ jobs:
 
       - uses: actions/checkout@v4
 
+        with:
+          ref: build/brave-linux-core2
       - name: Set up Node.js 24
         uses: actions/setup-node@v4
         with:
@@ -676,6 +682,8 @@ jobs:
 
       - uses: actions/checkout@v4
 
+        with:
+          ref: build/brave-linux-core2
       - name: Set up Node.js 24
         uses: actions/setup-node@v4
         with:
@@ -910,6 +918,8 @@ jobs:
 
       - uses: actions/checkout@v4
 
+        with:
+          ref: build/brave-linux-core2
       - name: Set up Node.js 24
         uses: actions/setup-node@v4
         with:
@@ -1144,6 +1154,8 @@ jobs:
 
       - uses: actions/checkout@v4
 
+        with:
+          ref: build/brave-linux-core2
       - name: Set up Node.js 24
         uses: actions/setup-node@v4
         with:
@@ -1378,6 +1390,8 @@ jobs:
 
       - uses: actions/checkout@v4
 
+        with:
+          ref: build/brave-linux-core2
       - name: Set up Node.js 24
         uses: actions/setup-node@v4
         with:
@@ -1612,6 +1626,8 @@ jobs:
 
       - uses: actions/checkout@v4
 
+        with:
+          ref: build/brave-linux-core2
       - name: Set up Node.js 24
         uses: actions/setup-node@v4
         with:
