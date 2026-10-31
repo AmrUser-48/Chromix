@@ -70,7 +70,7 @@ for raw in runtime_deps.read_text(encoding="utf-8").splitlines():
     count += 1
 
 # Keep the manifest and the exact GN args alongside the runtime files.
-for source in (runtime_deps, out / "args.gn", src / "LICENSE", brave / "LICENSE"):
+for source in (binary, runtime_deps, out / "args.gn", src / "LICENSE", brave / "LICENSE"):
     if source.is_file():
         relative = source.resolve().relative_to(src)
         destination = stage / "src" / relative
