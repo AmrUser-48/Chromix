@@ -29,7 +29,7 @@ permissions:
 
 concurrency:
   group: brave-linux-x64-core2-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 env:
   BRAVE_CORE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.brave_core_tag || 'v1.98.64' }}
