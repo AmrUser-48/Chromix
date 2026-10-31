@@ -53,6 +53,10 @@ emit stage "$STAGE"
 
 # The Brave build root is <workspace>/src/brave; Chromium is synced into
 # <workspace>/src by Brave's own pnpm/depot_tools build system.
+command -v node >/dev/null || die "Node.js is missing from PATH"
+command -v pnpm >/dev/null || die "pnpm is missing from PATH"
+node --version
+pnpm --version
 if [ ! -d "$BRAVE/.git" ]; then
   mkdir -p "$SRC"
   git clone --depth 1 --branch "$TAG" https://github.com/brave/brave-core.git "$BRAVE"
@@ -68,7 +72,7 @@ if [ ! -f "$SRC/.brave-init-complete" ]; then
   [ "$BUDGET" -gt 2 ] || snapshot_and_handoff "stage deadline reached before Brave initialization"
   log "initializing Brave $TAG and its pinned Chromium source (no Git history)"
   set +e
-  timeout -k 2m -s TERM "${BUDGET}m" bash -lc 'cd "$1" && pnpm run init -- --no-history' _ "$BRAVE"
+  timeout -k 2m -s TERM "${BUDGET}m" bash -c 'cd "$1" && pnpm run init -- --no-history' _ "$BRAVE"
   RC=$?
   set -e
   if is_timeout "$RC"; then snapshot_and_handoff "Brave source initialization reached the stage deadline"; fi
