@@ -43,6 +43,12 @@ done
 
 case "$PLATFORM" in linux|macos) ;; *) echo "--platform linux|macos is required" >&2; exit 2 ;; esac
 case "$ARCH" in x64|arm64) ;; *) echo "--arch x64|arm64 is required" >&2; exit 2 ;; esac
+BUILD_VARIANT="${CHROMIX_BUILD_VARIANT:-chromix}"
+case "$BUILD_VARIANT" in chromix|brave) ;; *) echo "unsupported build variant: $BUILD_VARIANT" >&2; exit 2 ;; esac
+if [ "$BUILD_VARIANT" = brave ] && [ "$PLATFORM:$ARCH" != "linux:x64" ]; then
+  echo "the Brave build variant currently supports Linux x64 only" >&2
+  exit 2
+fi
 case "${CHROMIX_BUILD_PROFILE:-release}" in
   fast|release) ;;
   *) echo "CHROMIX_BUILD_PROFILE must be fast or release" >&2; exit 2 ;;
@@ -55,6 +61,7 @@ mkdir -p "$WORK"
 WORK="$(cd "$WORK" && pwd)"
 SRC="$WORK/src"
 OUT="$SRC/out/Chromix"
+if [ "$BUILD_VARIANT" = brave ]; then OUT="$SRC/out/Release"; fi
 SNAPSHOT_DIR="$WORK/.snapshot-stage-$STAGE_INDEX"
 
 emit() {
@@ -102,6 +109,11 @@ fi
 if [ -n "$FROM_SNAPSHOT" ] && [ -d "$FROM_SNAPSHOT" ]; then
   bash "$REPO/build/posix/restore-snapshot.sh" "$FROM_SNAPSHOT" "$WORK" ||
     die "POSIX build snapshot restore failed"
+fi
+
+# Brave uses its own pinned gclient checkout, never the ungoogled Chromium donor cache.
+if [ "$BUILD_VARIANT" = brave ] && [ "${CHROMIX_USE_UPSTREAM_CACHE:-0}" = 1 ]; then
+  die "Brave builds cannot use the ungoogled-Chromium upstream cache"
 fi
 
 # Cache opt-in is mandatory in CI; helper APIs still report optional misses.
@@ -178,18 +190,23 @@ if [ -f "$SRC/.chromix-upstream-restored.json" ]; then
   OUT="$SRC/out/Default"
 fi
 
-if [ -f "$SRC/.chromix-domain-substitution-in-progress" ]; then
-  die "domain substitution was interrupted; use a clean work directory"
-fi
-if [ -f "$SRC/.chromix-source-ready" ]; then
-  # prepare-ungoogled.sh revalidates version pins, commits, and patch hash on rerun.
+if [ "$BUILD_VARIANT" = brave ]; then
+  # Brave's own pnpm/gclient synchronization is resumable and runs inside build.sh.
   :
 else
-  PREPARE_BUDGET=$(( $(remaining_min) - RESERVE_MINUTES ))
-  if [ "$PREPARE_BUDGET" -lt 25 ]; then
-    handoff "preparation budget ${PREPARE_BUDGET}m below minimum"
+  if [ -f "$SRC/.chromix-domain-substitution-in-progress" ]; then
+    die "domain substitution was interrupted; use a clean work directory"
   fi
-  "$REPO/build/prepare-ungoogled.sh" "$WORK" "$PLATFORM" "$ARCH"
+  if [ -f "$SRC/.chromix-source-ready" ]; then
+    # prepare-ungoogled.sh revalidates version pins, commits, and patch hash on rerun.
+    :
+  else
+    PREPARE_BUDGET=$(( $(remaining_min) - RESERVE_MINUTES ))
+    if [ "$PREPARE_BUDGET" -lt 25 ]; then
+      handoff "preparation budget ${PREPARE_BUDGET}m below minimum"
+    fi
+    "$REPO/build/prepare-ungoogled.sh" "$WORK" "$PLATFORM" "$ARCH"
+  fi
 fi
 
 # ---- bounded compile ------------------------------------------------------
@@ -198,7 +215,9 @@ if [ "$NINJA_BUDGET" -le 20 ]; then
   handoff "ninja budget ${NINJA_BUDGET}m below minimum"
 fi
 
-if [ "$PLATFORM" = linux ]; then
+if [ "$BUILD_VARIANT" = brave ]; then
+  BUILD_SCRIPT="$REPO/build/brave/build.sh"
+elif [ "$PLATFORM" = linux ]; then
   BUILD_SCRIPT="$REPO/build/build.sh"
 else
   BUILD_SCRIPT="$REPO/build/macos/build.sh"
@@ -215,10 +234,13 @@ else
   die "neither timeout nor gtimeout is available"
 fi
 
+SKIP_DEPS=1
+if [ "$BUILD_VARIANT" = brave ]; then SKIP_DEPS=0; fi
+
 set +e
 "$TIMEOUT" -k 7m -s SIGTERM "${NINJA_BUDGET}m" \
-  env CHROMIX_SKIP_DEPS=1 CHROMIX_WORKDIR="$WORK" \
-    "$BUILD_SCRIPT" "$WORK" "$ARCH"
+  env CHROMIX_SKIP_DEPS="$SKIP_DEPS" CHROMIX_WORKDIR="$WORK" \
+    bash "$BUILD_SCRIPT" "$WORK" "$ARCH"
 RC=$?
 set -e
 if [ "$RC" -eq 124 ]; then
@@ -229,7 +251,11 @@ fi
 
 # ---- completion checks -----------------------------------------------------
 if [ "$PLATFORM" = linux ]; then
-  [ -x "$OUT/chrome" ] || die "build exited 0 but $OUT/chrome is missing"
+  if [ "$BUILD_VARIANT" = brave ]; then
+    [ -x "$OUT/brave" ] || die "build exited 0 but $OUT/brave is missing"
+  else
+    [ -x "$OUT/chrome" ] || die "build exited 0 but $OUT/chrome is missing"
+  fi
   emit compiled_ready true
   emit runtime_verified false
 else
@@ -240,19 +266,23 @@ DEST_DIST="$WORK/dist"
 rm -rf "$DEST_DIST"
 mkdir -p "$DEST_DIST"
 if [ "$PLATFORM" = linux ]; then
-  bash "$REPO/build/linux/package-linux.sh" "$OUT" "$DEST_DIST" "$ARCH"
+  if [ "$BUILD_VARIANT" = brave ]; then
+    bash "$REPO/build/brave/package-linux.sh" "$OUT" "$DEST_DIST" "$ARCH"
+  else
+    bash "$REPO/build/linux/package-linux.sh" "$OUT" "$DEST_DIST" "$ARCH"
+  fi
 else
   bash "$REPO/build/macos/package-macos.sh" "$OUT/Chromium.app" "$DEST_DIST" "$ARCH"
 fi
 
 cd "$DEST_DIST"
-ASSET="chromix-linux-$ARCH.zip"
-[ "$PLATFORM" = macos ] && ASSET="chromix-mac-$ARCH.zip"
+ASSET="${CHROMIX_ARTIFACT_NAME:-chromix-linux-$ARCH}.zip"
+[ "$PLATFORM" = macos ] && ASSET="${CHROMIX_ARTIFACT_NAME:-chromix-mac-$ARCH}.zip"
 [ -s "$ASSET" ] || die "packaging did not produce $ASSET in $DEST_DIST"
 grep -E "^[0-9a-fA-F]{64}  $ASSET\$" SHA256SUMS >/dev/null ||
   die "SHA256SUMS is missing the entry for $ASSET"
 if [ "$PLATFORM" = linux ]; then
-  [ "$(grep -Ec "^[0-9a-fA-F]{64}  chromix-linux-$ARCH\\.zip\$" SHA256SUMS)" -eq 1 ] ||
+  [ "$(grep -Ec "^[0-9a-fA-F]{64}  $ASSET\$" SHA256SUMS)" -eq 1 ] ||
     die "SHA256SUMS must contain exactly one entry for $ASSET"
   sha256sum --check --strict SHA256SUMS || die "bundle checksum verification failed"
 else
@@ -273,6 +303,34 @@ if [ "$PLATFORM" = macos ]; then
 fi
 rm -rf "$SMOKE_DIR"
 mkdir -p "$SMOKE_DIR"
+
+if [ "$BUILD_VARIANT" = brave ]; then
+  unzip -q "$DEST_DIST/$ASSET" -d "$SMOKE_DIR" ||
+    fail_runtime_check "$?" "Brave distribution ZIP extraction failed"
+  BRAVE_BIN="$(find "$SMOKE_DIR" -type f -name brave -perm -111 -print -quit)"
+  [ -n "$BRAVE_BIN" ] || fail_runtime_check 1 "Brave executable missing from distribution ZIP"
+  VERSION_OUTPUT="$("$TIMEOUT" 30s "$BRAVE_BIN" --version)" ||
+    fail_runtime_check "$?" "Brave --version check failed"
+  echo "$VERSION_OUTPUT"
+  grep -qF "1.98.64" <<<"$VERSION_OUTPUT" ||
+    fail_runtime_check 1 "Brave runtime version does not match v1.98.64"
+
+  DOM_OUTPUT="$("$TIMEOUT" -k 10s 90s "$BRAVE_BIN" --no-sandbox --headless --disable-gpu \
+    --disable-dev-shm-usage --no-first-run --no-default-browser-check \
+    "--user-data-dir=$SMOKE_DIR/profile" --dump-dom \
+    'data:text/html,<p>brave-smoke-ok</p>')" ||
+    fail_runtime_check "$?" "Brave headless smoke test failed"
+  echo "$DOM_OUTPUT"
+  grep -qF '<p>brave-smoke-ok</p>' <<<"$DOM_OUTPUT" ||
+    fail_runtime_check 1 "Brave headless DOM marker missing"
+
+  rm -rf "$SMOKE_DIR"
+  emit runtime_verified true
+  emit finished true
+  emit status completed
+  exit 0
+fi
+
 python3 - "$REPO" "$DEST_DIST/$ASSET" "$SMOKE_DIR" <<'PY' || fail_runtime_check "$?" "bundle extraction failed"
 import importlib.util
 from pathlib import Path
