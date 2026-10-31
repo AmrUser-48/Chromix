@@ -43,7 +43,7 @@ def resolve_dep(raw: str) -> Path:
         except (OSError, ValueError):
             continue
         if candidate.is_file() or candidate.is_symlink():
-            return candidate
+            return Path(os.path.abspath(candidate))
     fail(f"runtime dependency is missing or outside Chromium source tree: {raw}")
 
 seen: set[str] = set()
@@ -55,7 +55,8 @@ for raw in runtime_deps.read_text(encoding="utf-8").splitlines():
     seen.add(raw)
     source = resolve_dep(raw)
     resolved = source.resolve(strict=True)
-    relative = resolved.relative_to(src)
+    resolved.relative_to(src)
+    relative = source.relative_to(src) if source.is_symlink() else resolved.relative_to(src)
     destination = stage / "src" / relative
     destination.parent.mkdir(parents=True, exist_ok=True)
     if source.is_symlink():
@@ -116,7 +117,11 @@ subprocess.run(
      "-C", str(dist), stage.name],
     check=True,
 )
-digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+hasher = hashlib.sha256()
+with archive.open("rb") as stream:
+    for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+        hasher.update(chunk)
+digest = hasher.hexdigest()
 (dist / "SHA256SUMS").write_text(f"{digest}  {archive.name}\n", encoding="ascii")
 print(f"Packaged {count} runtime dependencies")
 print(f"Brave: {version}")
