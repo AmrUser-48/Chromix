@@ -100,16 +100,16 @@ fi
 BUDGET="$(remaining_minutes)"
 [ "$BUDGET" -gt 2 ] || snapshot_and_handoff "stage deadline reached before compilation"
 log "building Brave Release for Linux x64 with Core 2 flags; jobs=$JOBS"
-set +e
-(
-  cd "$BRAVE"
-  pnpm run build -- Release \
-    --target_os linux --target_arch x64 \
-    --gn is_cfi:false \
-    --gn use_thin_lto:false \
-    --gn thin_lto_enable_optimizations:false \
-    --ninja "j:$JOBS"
+BUILD_ARGS=(
+  --target_os linux --target_arch x64
+  --gn is_cfi:false
+  --gn use_thin_lto:false
+  --gn thin_lto_enable_optimizations:false
+  --ninja "j:$JOBS"
 )
+set +e
+timeout -k 2m -s TERM "${BUDGET}m" bash -c \
+  'cd "$1"; shift; exec pnpm run build -- Release "$@"' _ "$BRAVE" "${BUILD_ARGS[@]}"
 RC=$?
 set -e
 if [ "$RC" -ne 0 ]; then
