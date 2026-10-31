@@ -67,16 +67,32 @@ ACTUAL_TAG="$(git -C "$BRAVE" describe --exact-match --tags HEAD 2>/dev/null || 
 
 # A timed-out init is safe to repeat: pnpm install and gclient sync are
 # incremental, so an interrupted checkout continues instead of restarting.
+# Keep pnpm install separate from the sync CLI. Passing --no-history through
+# "pnpm run init -- ..." is appended to the package's chained shell command
+# and is parsed as a positional argument by Commander in sync.ts.
+if [ ! -f "$SRC/.brave-pnpm-install-complete" ]; then
+  BUDGET="$(remaining_minutes)"
+  [ "$BUDGET" -gt 2 ] || snapshot_and_handoff "stage deadline reached before pnpm install"
+  log "installing Brave JavaScript dependencies"
+  set +e
+  timeout -k 2m -s TERM "${BUDGET}m" bash -c 'cd "$1" && pnpm install --frozen-lockfile --yes' _ "$BRAVE"
+  RC=$?
+  set -e
+  if is_timeout "$RC"; then snapshot_and_handoff "Brave pnpm install reached the stage deadline"; fi
+  [ "$RC" -eq 0 ] || die "pnpm install failed with exit $RC"
+  printf '%s\n' "$TAG" > "$SRC/.brave-pnpm-install-complete"
+fi
+
 if [ ! -f "$SRC/.brave-init-complete" ]; then
   BUDGET="$(remaining_minutes)"
-  [ "$BUDGET" -gt 2 ] || snapshot_and_handoff "stage deadline reached before Brave initialization"
+  [ "$BUDGET" -gt 2 ] || snapshot_and_handoff "stage deadline reached before Brave source sync"
   log "initializing Brave $TAG and its pinned Chromium source (no Git history)"
   set +e
-  timeout -k 2m -s TERM "${BUDGET}m" bash -c 'cd "$1" && pnpm run init -- --no-history' _ "$BRAVE"
+  timeout -k 2m -s TERM "${BUDGET}m" bash -c 'cd "$1" && node ./build/commands/scripts/sync.ts --init --no-history' _ "$BRAVE"
   RC=$?
   set -e
   if is_timeout "$RC"; then snapshot_and_handoff "Brave source initialization reached the stage deadline"; fi
-  [ "$RC" -eq 0 ] || die "pnpm run init failed with exit $RC"
+  [ "$RC" -eq 0 ] || die "Brave source sync failed with exit $RC"
   printf '%s\n' "$TAG" > "$SRC/.brave-init-complete"
 fi
 
