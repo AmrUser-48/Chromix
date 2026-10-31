@@ -139,7 +139,7 @@ PY
 
 log "Brave version: $("$OUT/brave" --version)"
 rm -rf "$WORK/dist"
-bash "$REPO/build/brave/package-linux.sh" "$SRC" "$WORK/dist" "$TAG"
+python3 "$REPO/build/brave/package-linux.py" "$SRC" "$WORK/dist" "$TAG"
 emit finished true
 emit upload_snapshot false
 log "Brave Linux x64 build and runtime bundle completed"
