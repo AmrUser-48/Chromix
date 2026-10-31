@@ -1,0 +1,1834 @@
+name: build-brave-linux-x64
+run-name: >-
+  ${{ github.event_name == 'workflow_dispatch' && format('Brave Linux x64 {0} jobs={1}', inputs.brave_core_tag, inputs.compile_jobs) || 'Brave Linux x64 Core 2 Release' }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      brave_core_tag:
+        description: Brave core tag to build
+        type: string
+        default: v1.98.64
+      compile_jobs:
+        description: Siso/Ninja compile job limit
+        type: string
+        default: '4'
+  push:
+    branches: [build/brave-linux-core2]
+    paths:
+      - '.github/workflows/build-brave-linux-x64.yml'
+      - 'build/brave/**'
+      - 'build/posix/ci-parts.sh'
+      - 'build/posix/restore-snapshot.sh'
+      - 'tools/restore_posix_snapshot.py'
+      - 'tools/snapshot_volumes.py'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: brave-linux-x64-core2-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  BRAVE_CORE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.brave_core_tag || 'v1.98.64' }}
+  CHROMIX_BRAVE_JOBS: ${{ github.event_name == 'workflow_dispatch' && inputs.compile_jobs || '4' }}
+
+jobs:
+  build_1:
+    name: Brave Linux x64 stage 1 (source sync + compile)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 355
+    outputs:
+      finished: ${{ steps.stage.outputs.finished }}
+      upload_snapshot: ${{ steps.stage.outputs.upload_snapshot }}
+    steps:
+      - name: Record stage deadline
+        run: |
+          set -euo pipefail
+          echo "CHROMIX_JOB_START_EPOCH=$(date +%s)" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/brave-logs"
+
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24.20.0'
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install pnpm 11.11.0
+        run: npm install --global pnpm@11.11.0
+
+      - name: Install snapshot and build utilities
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y git ninja-build zstd file zip unzip
+
+      - name: Run Brave stage 1
+        id: stage
+        run: |
+          set -euo pipefail
+          bash build/brave/ci-stage.sh "$RUNNER_TEMP/brave-build" 1 \
+            2>&1 | tee "$RUNNER_TEMP/brave-logs/stage-1.log"
+
+      - name: Upload checkpoint volume 1
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage1-p1
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-1/p1
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload checkpoint volume 2
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage1-p2
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-1/p2
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload checkpoint volume 3
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage1-p3
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-1/p3
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload checkpoint volume 4
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage1-p4
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-1/p4
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload checkpoint volume 5
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage1-p5
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-1/p5
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload checkpoint volume 6
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage1-p6
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-1/p6
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload checkpoint volume 7
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage1-p7
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-1/p7
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload checkpoint volume 8
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage1-p8
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-1/p8
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload completed Brave browser
+        if: ${{ steps.stage.outputs.finished == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-${{ env.BRAVE_CORE_TAG }}
+          path: |
+            ${{ runner.temp }}/brave-build/dist/brave-linux-x64.tar.zst
+            ${{ runner.temp }}/brave-build/dist/SHA256SUMS
+            ${{ runner.temp }}/brave-build/dist/brave-linux-x64/BUILD-INFO.txt
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 30
+          compression-level: 0
+
+      - name: Upload stage diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-logs-stage1
+          path: ${{ runner.temp }}/brave-logs/
+          if-no-files-found: warn
+          retention-days: 14
+
+
+  build_2:
+    needs: build_1
+    if: ${{ needs.build_1.outputs.finished != 'true' }}
+    name: Brave Linux x64 stage 2
+    runs-on: ubuntu-22.04
+    timeout-minutes: 355
+    outputs:
+      finished: ${{ steps.stage.outputs.finished }}
+      upload_snapshot: ${{ steps.stage.outputs.upload_snapshot }}
+    steps:
+      - name: Record stage deadline
+        run: |
+          set -euo pipefail
+          echo "CHROMIX_JOB_START_EPOCH=$(date +%s)" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/brave-logs"
+
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24.20.0'
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install pnpm 11.11.0
+        run: npm install --global pnpm@11.11.0
+
+      - name: Install snapshot and build utilities
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y git ninja-build zstd file zip unzip
+
+      - name: Download previous checkpoint volume 1
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: brave-linux-x64-stage1-p1
+          path: ${{ runner.temp }}/brave-restore/p1
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+
+      - name: Download previous checkpoint volume 2
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: brave-linux-x64-stage1-p2
+          path: ${{ runner.temp }}/brave-restore/p2
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+
+      - name: Download previous checkpoint volume 3
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: brave-linux-x64-stage1-p3
+          path: ${{ runner.temp }}/brave-restore/p3
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+
+      - name: Download previous checkpoint volume 4
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: brave-linux-x64-stage1-p4
+          path: ${{ runner.temp }}/brave-restore/p4
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+
+      - name: Download previous checkpoint volume 5
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: brave-linux-x64-stage1-p5
+          path: ${{ runner.temp }}/brave-restore/p5
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+
+      - name: Download previous checkpoint volume 6
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: brave-linux-x64-stage1-p6
+          path: ${{ runner.temp }}/brave-restore/p6
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+
+      - name: Download previous checkpoint volume 7
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: brave-linux-x64-stage1-p7
+          path: ${{ runner.temp }}/brave-restore/p7
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+
+      - name: Download previous checkpoint volume 8
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: brave-linux-x64-stage1-p8
+          path: ${{ runner.temp }}/brave-restore/p8
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+
+      - name: Restore complete build workspace
+        run: |
+          set -euo pipefail
+          bash build/posix/restore-snapshot.sh \
+            "$RUNNER_TEMP/brave-restore" "$RUNNER_TEMP/brave-build"
+
+      - name: Run Brave stage 2
+        id: stage
+        run: |
+          set -euo pipefail
+          bash build/brave/ci-stage.sh "$RUNNER_TEMP/brave-build" 2 \
+            2>&1 | tee "$RUNNER_TEMP/brave-logs/stage-2.log"
+
+      - name: Upload checkpoint volume 1
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage2-p1
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-2/p1
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload checkpoint volume 2
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage2-p2
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-2/p2
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload checkpoint volume 3
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage2-p3
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-2/p3
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload checkpoint volume 4
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage2-p4
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-2/p4
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload checkpoint volume 5
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage2-p5
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-2/p5
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload checkpoint volume 6
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage2-p6
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-2/p6
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload checkpoint volume 7
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage2-p7
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-2/p7
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload checkpoint volume 8
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage2-p8
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-2/p8
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload completed Brave browser
+        if: ${{ steps.stage.outputs.finished == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-${{ env.BRAVE_CORE_TAG }}
+          path: |
+            ${{ runner.temp }}/brave-build/dist/brave-linux-x64.tar.zst
+            ${{ runner.temp }}/brave-build/dist/SHA256SUMS
+            ${{ runner.temp }}/brave-build/dist/brave-linux-x64/BUILD-INFO.txt
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 30
+          compression-level: 0
+
+      - name: Upload stage diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-logs-stage2
+          path: ${{ runner.temp }}/brave-logs/
+          if-no-files-found: warn
+          retention-days: 14
+
+
+  build_3:
+    needs: build_2
+    if: ${{ needs.build_2.outputs.finished != 'true' }}
+    name: Brave Linux x64 stage 3
+    runs-on: ubuntu-22.04
+    timeout-minutes: 355
+    outputs:
+      finished: ${{ steps.stage.outputs.finished }}
+      upload_snapshot: ${{ steps.stage.outputs.upload_snapshot }}
+    steps:
+      - name: Record stage deadline
+        run: |
+          set -euo pipefail
+          echo "CHROMIX_JOB_START_EPOCH=$(date +%s)" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/brave-logs"
+
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24.20.0'
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install pnpm 11.11.0
+        run: npm install --global pnpm@11.11.0
+
+      - name: Install snapshot and build utilities
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y git ninja-build zstd file zip unzip
+
+      - name: Download previous checkpoint volume 1
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: brave-linux-x64-stage2-p1
+          path: ${{ runner.temp }}/brave-restore/p1
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+
+      - name: Download previous checkpoint volume 2
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: brave-linux-x64-stage2-p2
+          path: ${{ runner.temp }}/brave-restore/p2
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+
+      - name: Download previous checkpoint volume 3
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: brave-linux-x64-stage2-p3
+          path: ${{ runner.temp }}/brave-restore/p3
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+
+      - name: Download previous checkpoint volume 4
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: brave-linux-x64-stage2-p4
+          path: ${{ runner.temp }}/brave-restore/p4
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+
+      - name: Download previous checkpoint volume 5
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: brave-linux-x64-stage2-p5
+          path: ${{ runner.temp }}/brave-restore/p5
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+
+      - name: Download previous checkpoint volume 6
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: brave-linux-x64-stage2-p6
+          path: ${{ runner.temp }}/brave-restore/p6
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+
+      - name: Download previous checkpoint volume 7
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: brave-linux-x64-stage2-p7
+          path: ${{ runner.temp }}/brave-restore/p7
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+
+      - name: Download previous checkpoint volume 8
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: brave-linux-x64-stage2-p8
+          path: ${{ runner.temp }}/brave-restore/p8
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+
+      - name: Restore complete build workspace
+        run: |
+          set -euo pipefail
+          bash build/posix/restore-snapshot.sh \
+            "$RUNNER_TEMP/brave-restore" "$RUNNER_TEMP/brave-build"
+
+      - name: Run Brave stage 3
+        id: stage
+        run: |
+          set -euo pipefail
+          bash build/brave/ci-stage.sh "$RUNNER_TEMP/brave-build" 3 \
+            2>&1 | tee "$RUNNER_TEMP/brave-logs/stage-3.log"
+
+      - name: Upload checkpoint volume 1
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage3-p1
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-3/p1
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload checkpoint volume 2
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage3-p2
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-3/p2
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload checkpoint volume 3
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage3-p3
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-3/p3
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload checkpoint volume 4
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage3-p4
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-3/p4
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload checkpoint volume 5
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage3-p5
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-3/p5
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload checkpoint volume 6
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage3-p6
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-3/p6
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload checkpoint volume 7
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage3-p7
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-3/p7
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload checkpoint volume 8
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage3-p8
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-3/p8
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload completed Brave browser
+        if: ${{ steps.stage.outputs.finished == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-${{ env.BRAVE_CORE_TAG }}
+          path: |
+            ${{ runner.temp }}/brave-build/dist/brave-linux-x64.tar.zst
+            ${{ runner.temp }}/brave-build/dist/SHA256SUMS
+            ${{ runner.temp }}/brave-build/dist/brave-linux-x64/BUILD-INFO.txt
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 30
+          compression-level: 0
+
+      - name: Upload stage diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-logs-stage3
+          path: ${{ runner.temp }}/brave-logs/
+          if-no-files-found: warn
+          retention-days: 14
+
+
+  build_4:
+    needs: build_3
+    if: ${{ needs.build_3.outputs.finished != 'true' }}
+    name: Brave Linux x64 stage 4
+    runs-on: ubuntu-22.04
+    timeout-minutes: 355
+    outputs:
+      finished: ${{ steps.stage.outputs.finished }}
+      upload_snapshot: ${{ steps.stage.outputs.upload_snapshot }}
+    steps:
+      - name: Record stage deadline
+        run: |
+          set -euo pipefail
+          echo "CHROMIX_JOB_START_EPOCH=$(date +%s)" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/brave-logs"
+
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24.20.0'
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install pnpm 11.11.0
+        run: npm install --global pnpm@11.11.0
+
+      - name: Install snapshot and build utilities
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y git ninja-build zstd file zip unzip
+
+      - name: Download previous checkpoint volume 1
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: brave-linux-x64-stage3-p1
+          path: ${{ runner.temp }}/brave-restore/p1
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+
+      - name: Download previous checkpoint volume 2
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: brave-linux-x64-stage3-p2
+          path: ${{ runner.temp }}/brave-restore/p2
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+
+      - name: Download previous checkpoint volume 3
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: brave-linux-x64-stage3-p3
+          path: ${{ runner.temp }}/brave-restore/p3
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+
+      - name: Download previous checkpoint volume 4
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: brave-linux-x64-stage3-p4
+          path: ${{ runner.temp }}/brave-restore/p4
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+
+      - name: Download previous checkpoint volume 5
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: brave-linux-x64-stage3-p5
+          path: ${{ runner.temp }}/brave-restore/p5
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+
+      - name: Download previous checkpoint volume 6
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: brave-linux-x64-stage3-p6
+          path: ${{ runner.temp }}/brave-restore/p6
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+
+      - name: Download previous checkpoint volume 7
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: brave-linux-x64-stage3-p7
+          path: ${{ runner.temp }}/brave-restore/p7
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+
+      - name: Download previous checkpoint volume 8
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: brave-linux-x64-stage3-p8
+          path: ${{ runner.temp }}/brave-restore/p8
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+
+      - name: Restore complete build workspace
+        run: |
+          set -euo pipefail
+          bash build/posix/restore-snapshot.sh \
+            "$RUNNER_TEMP/brave-restore" "$RUNNER_TEMP/brave-build"
+
+      - name: Run Brave stage 4
+        id: stage
+        run: |
+          set -euo pipefail
+          bash build/brave/ci-stage.sh "$RUNNER_TEMP/brave-build" 4 \
+            2>&1 | tee "$RUNNER_TEMP/brave-logs/stage-4.log"
+
+      - name: Upload checkpoint volume 1
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage4-p1
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-4/p1
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload checkpoint volume 2
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage4-p2
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-4/p2
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload checkpoint volume 3
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage4-p3
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-4/p3
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload checkpoint volume 4
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage4-p4
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-4/p4
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload checkpoint volume 5
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage4-p5
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-4/p5
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload checkpoint volume 6
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage4-p6
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-4/p6
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload checkpoint volume 7
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage4-p7
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-4/p7
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload checkpoint volume 8
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage4-p8
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-4/p8
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload completed Brave browser
+        if: ${{ steps.stage.outputs.finished == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-${{ env.BRAVE_CORE_TAG }}
+          path: |
+            ${{ runner.temp }}/brave-build/dist/brave-linux-x64.tar.zst
+            ${{ runner.temp }}/brave-build/dist/SHA256SUMS
+            ${{ runner.temp }}/brave-build/dist/brave-linux-x64/BUILD-INFO.txt
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 30
+          compression-level: 0
+
+      - name: Upload stage diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-logs-stage4
+          path: ${{ runner.temp }}/brave-logs/
+          if-no-files-found: warn
+          retention-days: 14
+
+
+  build_5:
+    needs: build_4
+    if: ${{ needs.build_4.outputs.finished != 'true' }}
+    name: Brave Linux x64 stage 5
+    runs-on: ubuntu-22.04
+    timeout-minutes: 355
+    outputs:
+      finished: ${{ steps.stage.outputs.finished }}
+      upload_snapshot: ${{ steps.stage.outputs.upload_snapshot }}
+    steps:
+      - name: Record stage deadline
+        run: |
+          set -euo pipefail
+          echo "CHROMIX_JOB_START_EPOCH=$(date +%s)" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/brave-logs"
+
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24.20.0'
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install pnpm 11.11.0
+        run: npm install --global pnpm@11.11.0
+
+      - name: Install snapshot and build utilities
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y git ninja-build zstd file zip unzip
+
+      - name: Download previous checkpoint volume 1
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: brave-linux-x64-stage4-p1
+          path: ${{ runner.temp }}/brave-restore/p1
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+
+      - name: Download previous checkpoint volume 2
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: brave-linux-x64-stage4-p2
+          path: ${{ runner.temp }}/brave-restore/p2
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+
+      - name: Download previous checkpoint volume 3
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: brave-linux-x64-stage4-p3
+          path: ${{ runner.temp }}/brave-restore/p3
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+
+      - name: Download previous checkpoint volume 4
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: brave-linux-x64-stage4-p4
+          path: ${{ runner.temp }}/brave-restore/p4
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+
+      - name: Download previous checkpoint volume 5
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: brave-linux-x64-stage4-p5
+          path: ${{ runner.temp }}/brave-restore/p5
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+
+      - name: Download previous checkpoint volume 6
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: brave-linux-x64-stage4-p6
+          path: ${{ runner.temp }}/brave-restore/p6
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+
+      - name: Download previous checkpoint volume 7
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: brave-linux-x64-stage4-p7
+          path: ${{ runner.temp }}/brave-restore/p7
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+
+      - name: Download previous checkpoint volume 8
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: brave-linux-x64-stage4-p8
+          path: ${{ runner.temp }}/brave-restore/p8
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+
+      - name: Restore complete build workspace
+        run: |
+          set -euo pipefail
+          bash build/posix/restore-snapshot.sh \
+            "$RUNNER_TEMP/brave-restore" "$RUNNER_TEMP/brave-build"
+
+      - name: Run Brave stage 5
+        id: stage
+        run: |
+          set -euo pipefail
+          bash build/brave/ci-stage.sh "$RUNNER_TEMP/brave-build" 5 \
+            2>&1 | tee "$RUNNER_TEMP/brave-logs/stage-5.log"
+
+      - name: Upload checkpoint volume 1
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage5-p1
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-5/p1
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload checkpoint volume 2
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage5-p2
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-5/p2
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload checkpoint volume 3
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage5-p3
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-5/p3
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload checkpoint volume 4
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage5-p4
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-5/p4
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload checkpoint volume 5
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage5-p5
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-5/p5
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload checkpoint volume 6
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage5-p6
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-5/p6
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload checkpoint volume 7
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage5-p7
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-5/p7
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload checkpoint volume 8
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage5-p8
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-5/p8
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload completed Brave browser
+        if: ${{ steps.stage.outputs.finished == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-${{ env.BRAVE_CORE_TAG }}
+          path: |
+            ${{ runner.temp }}/brave-build/dist/brave-linux-x64.tar.zst
+            ${{ runner.temp }}/brave-build/dist/SHA256SUMS
+            ${{ runner.temp }}/brave-build/dist/brave-linux-x64/BUILD-INFO.txt
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 30
+          compression-level: 0
+
+      - name: Upload stage diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-logs-stage5
+          path: ${{ runner.temp }}/brave-logs/
+          if-no-files-found: warn
+          retention-days: 14
+
+
+  build_6:
+    needs: build_5
+    if: ${{ needs.build_5.outputs.finished != 'true' }}
+    name: Brave Linux x64 stage 6
+    runs-on: ubuntu-22.04
+    timeout-minutes: 355
+    outputs:
+      finished: ${{ steps.stage.outputs.finished }}
+      upload_snapshot: ${{ steps.stage.outputs.upload_snapshot }}
+    steps:
+      - name: Record stage deadline
+        run: |
+          set -euo pipefail
+          echo "CHROMIX_JOB_START_EPOCH=$(date +%s)" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/brave-logs"
+
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24.20.0'
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install pnpm 11.11.0
+        run: npm install --global pnpm@11.11.0
+
+      - name: Install snapshot and build utilities
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y git ninja-build zstd file zip unzip
+
+      - name: Download previous checkpoint volume 1
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: brave-linux-x64-stage5-p1
+          path: ${{ runner.temp }}/brave-restore/p1
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+
+      - name: Download previous checkpoint volume 2
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: brave-linux-x64-stage5-p2
+          path: ${{ runner.temp }}/brave-restore/p2
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+
+      - name: Download previous checkpoint volume 3
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: brave-linux-x64-stage5-p3
+          path: ${{ runner.temp }}/brave-restore/p3
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+
+      - name: Download previous checkpoint volume 4
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: brave-linux-x64-stage5-p4
+          path: ${{ runner.temp }}/brave-restore/p4
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+
+      - name: Download previous checkpoint volume 5
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: brave-linux-x64-stage5-p5
+          path: ${{ runner.temp }}/brave-restore/p5
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+
+      - name: Download previous checkpoint volume 6
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: brave-linux-x64-stage5-p6
+          path: ${{ runner.temp }}/brave-restore/p6
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+
+      - name: Download previous checkpoint volume 7
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: brave-linux-x64-stage5-p7
+          path: ${{ runner.temp }}/brave-restore/p7
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+
+      - name: Download previous checkpoint volume 8
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: brave-linux-x64-stage5-p8
+          path: ${{ runner.temp }}/brave-restore/p8
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+
+      - name: Restore complete build workspace
+        run: |
+          set -euo pipefail
+          bash build/posix/restore-snapshot.sh \
+            "$RUNNER_TEMP/brave-restore" "$RUNNER_TEMP/brave-build"
+
+      - name: Run Brave stage 6
+        id: stage
+        run: |
+          set -euo pipefail
+          bash build/brave/ci-stage.sh "$RUNNER_TEMP/brave-build" 6 \
+            2>&1 | tee "$RUNNER_TEMP/brave-logs/stage-6.log"
+
+      - name: Upload checkpoint volume 1
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage6-p1
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-6/p1
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload checkpoint volume 2
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage6-p2
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-6/p2
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload checkpoint volume 3
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage6-p3
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-6/p3
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload checkpoint volume 4
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage6-p4
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-6/p4
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload checkpoint volume 5
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage6-p5
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-6/p5
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload checkpoint volume 6
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage6-p6
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-6/p6
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload checkpoint volume 7
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage6-p7
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-6/p7
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload checkpoint volume 8
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage6-p8
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-6/p8
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload completed Brave browser
+        if: ${{ steps.stage.outputs.finished == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-${{ env.BRAVE_CORE_TAG }}
+          path: |
+            ${{ runner.temp }}/brave-build/dist/brave-linux-x64.tar.zst
+            ${{ runner.temp }}/brave-build/dist/SHA256SUMS
+            ${{ runner.temp }}/brave-build/dist/brave-linux-x64/BUILD-INFO.txt
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 30
+          compression-level: 0
+
+      - name: Upload stage diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-logs-stage6
+          path: ${{ runner.temp }}/brave-logs/
+          if-no-files-found: warn
+          retention-days: 14
+
+
+  build_7:
+    needs: build_6
+    if: ${{ needs.build_6.outputs.finished != 'true' }}
+    name: Brave Linux x64 stage 7
+    runs-on: ubuntu-22.04
+    timeout-minutes: 355
+    outputs:
+      finished: ${{ steps.stage.outputs.finished }}
+      upload_snapshot: ${{ steps.stage.outputs.upload_snapshot }}
+    steps:
+      - name: Record stage deadline
+        run: |
+          set -euo pipefail
+          echo "CHROMIX_JOB_START_EPOCH=$(date +%s)" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/brave-logs"
+
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24.20.0'
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install pnpm 11.11.0
+        run: npm install --global pnpm@11.11.0
+
+      - name: Install snapshot and build utilities
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y git ninja-build zstd file zip unzip
+
+      - name: Download previous checkpoint volume 1
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: brave-linux-x64-stage6-p1
+          path: ${{ runner.temp }}/brave-restore/p1
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+
+      - name: Download previous checkpoint volume 2
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: brave-linux-x64-stage6-p2
+          path: ${{ runner.temp }}/brave-restore/p2
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+
+      - name: Download previous checkpoint volume 3
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: brave-linux-x64-stage6-p3
+          path: ${{ runner.temp }}/brave-restore/p3
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+
+      - name: Download previous checkpoint volume 4
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: brave-linux-x64-stage6-p4
+          path: ${{ runner.temp }}/brave-restore/p4
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+
+      - name: Download previous checkpoint volume 5
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: brave-linux-x64-stage6-p5
+          path: ${{ runner.temp }}/brave-restore/p5
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+
+      - name: Download previous checkpoint volume 6
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: brave-linux-x64-stage6-p6
+          path: ${{ runner.temp }}/brave-restore/p6
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+
+      - name: Download previous checkpoint volume 7
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: brave-linux-x64-stage6-p7
+          path: ${{ runner.temp }}/brave-restore/p7
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+
+      - name: Download previous checkpoint volume 8
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: brave-linux-x64-stage6-p8
+          path: ${{ runner.temp }}/brave-restore/p8
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+
+      - name: Restore complete build workspace
+        run: |
+          set -euo pipefail
+          bash build/posix/restore-snapshot.sh \
+            "$RUNNER_TEMP/brave-restore" "$RUNNER_TEMP/brave-build"
+
+      - name: Run Brave stage 7
+        id: stage
+        run: |
+          set -euo pipefail
+          bash build/brave/ci-stage.sh "$RUNNER_TEMP/brave-build" 7 \
+            2>&1 | tee "$RUNNER_TEMP/brave-logs/stage-7.log"
+
+      - name: Upload checkpoint volume 1
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage7-p1
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-7/p1
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload checkpoint volume 2
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage7-p2
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-7/p2
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload checkpoint volume 3
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage7-p3
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-7/p3
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload checkpoint volume 4
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage7-p4
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-7/p4
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload checkpoint volume 5
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage7-p5
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-7/p5
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload checkpoint volume 6
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage7-p6
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-7/p6
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload checkpoint volume 7
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage7-p7
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-7/p7
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload checkpoint volume 8
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage7-p8
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-7/p8
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload completed Brave browser
+        if: ${{ steps.stage.outputs.finished == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-${{ env.BRAVE_CORE_TAG }}
+          path: |
+            ${{ runner.temp }}/brave-build/dist/brave-linux-x64.tar.zst
+            ${{ runner.temp }}/brave-build/dist/SHA256SUMS
+            ${{ runner.temp }}/brave-build/dist/brave-linux-x64/BUILD-INFO.txt
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 30
+          compression-level: 0
+
+      - name: Upload stage diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-logs-stage7
+          path: ${{ runner.temp }}/brave-logs/
+          if-no-files-found: warn
+          retention-days: 14
+
+
+  build_8:
+    needs: build_7
+    if: ${{ needs.build_7.outputs.finished != 'true' }}
+    name: Brave Linux x64 stage 8
+    runs-on: ubuntu-22.04
+    timeout-minutes: 355
+    outputs:
+      finished: ${{ steps.stage.outputs.finished }}
+      upload_snapshot: ${{ steps.stage.outputs.upload_snapshot }}
+    steps:
+      - name: Record stage deadline
+        run: |
+          set -euo pipefail
+          echo "CHROMIX_JOB_START_EPOCH=$(date +%s)" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/brave-logs"
+
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24.20.0'
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install pnpm 11.11.0
+        run: npm install --global pnpm@11.11.0
+
+      - name: Install snapshot and build utilities
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y git ninja-build zstd file zip unzip
+
+      - name: Download previous checkpoint volume 1
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: brave-linux-x64-stage7-p1
+          path: ${{ runner.temp }}/brave-restore/p1
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+
+      - name: Download previous checkpoint volume 2
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: brave-linux-x64-stage7-p2
+          path: ${{ runner.temp }}/brave-restore/p2
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+
+      - name: Download previous checkpoint volume 3
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: brave-linux-x64-stage7-p3
+          path: ${{ runner.temp }}/brave-restore/p3
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+
+      - name: Download previous checkpoint volume 4
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: brave-linux-x64-stage7-p4
+          path: ${{ runner.temp }}/brave-restore/p4
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+
+      - name: Download previous checkpoint volume 5
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: brave-linux-x64-stage7-p5
+          path: ${{ runner.temp }}/brave-restore/p5
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+
+      - name: Download previous checkpoint volume 6
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: brave-linux-x64-stage7-p6
+          path: ${{ runner.temp }}/brave-restore/p6
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+
+      - name: Download previous checkpoint volume 7
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: brave-linux-x64-stage7-p7
+          path: ${{ runner.temp }}/brave-restore/p7
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+
+      - name: Download previous checkpoint volume 8
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: brave-linux-x64-stage7-p8
+          path: ${{ runner.temp }}/brave-restore/p8
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+
+      - name: Restore complete build workspace
+        run: |
+          set -euo pipefail
+          bash build/posix/restore-snapshot.sh \
+            "$RUNNER_TEMP/brave-restore" "$RUNNER_TEMP/brave-build"
+
+      - name: Run Brave stage 8
+        id: stage
+        run: |
+          set -euo pipefail
+          bash build/brave/ci-stage.sh "$RUNNER_TEMP/brave-build" 8 \
+            2>&1 | tee "$RUNNER_TEMP/brave-logs/stage-8.log"
+
+      - name: Upload checkpoint volume 1
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage8-p1
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-8/p1
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload checkpoint volume 2
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage8-p2
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-8/p2
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload checkpoint volume 3
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage8-p3
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-8/p3
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload checkpoint volume 4
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage8-p4
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-8/p4
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload checkpoint volume 5
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage8-p5
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-8/p5
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload checkpoint volume 6
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage8-p6
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-8/p6
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload checkpoint volume 7
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage8-p7
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-8/p7
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload checkpoint volume 8
+        if: ${{ steps.stage.outputs.upload_snapshot == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-stage8-p8
+          path: ${{ runner.temp }}/brave-build/.snapshot-stage-8/p8
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload completed Brave browser
+        if: ${{ steps.stage.outputs.finished == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-${{ env.BRAVE_CORE_TAG }}
+          path: |
+            ${{ runner.temp }}/brave-build/dist/brave-linux-x64.tar.zst
+            ${{ runner.temp }}/brave-build/dist/SHA256SUMS
+            ${{ runner.temp }}/brave-build/dist/brave-linux-x64/BUILD-INFO.txt
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 30
+          compression-level: 0
+
+      - name: Upload stage diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-linux-x64-logs-stage8
+          path: ${{ runner.temp }}/brave-logs/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Require completion within eight stages
+        if: ${{ steps.stage.outputs.finished != 'true' }}
+        run: |
+          echo "::error::Brave did not finish within eight stages; the stage-8 checkpoint artifacts were preserved."
+          exit 1
