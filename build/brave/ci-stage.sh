@@ -125,7 +125,7 @@ BUILD_ARGS=(
 )
 set +e
 timeout -k 2m -s TERM "${BUDGET}m" bash -c \
-  'cd "$1"; shift; exec pnpm run build -- Release "$@"' _ "$BRAVE" "${BUILD_ARGS[@]}"
+  'cd "$1"; shift; exec node ./build/commands/scripts/build.ts Release "$@"' _ "$BRAVE" "${BUILD_ARGS[@]}"
 RC=$?
 set -e
 if [ "$RC" -ne 0 ]; then
