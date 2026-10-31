@@ -1,0 +1,12 @@
+diff --git a/build/config/compiler/BUILD.gn b/build/config/compiler/BUILD.gn
+--- a/build/config/compiler/BUILD.gn
++++ b/build/config/compiler/BUILD.gn
+@@ -327,6 +327,10 @@ config("compiler") {
+   asmflags = []
+   cflags = []
++  if (is_linux && is_a_target_toolchain && target_os == "linux" && target_cpu == "x64") {
++    cflags += [ "-march=core2", "-mtune=core2" ]
++  }
+   cflags_c = []
+   cflags_cc = []
+   cflags_objc = []
