@@ -123,7 +123,7 @@ import sys
 out = Path(sys.argv[1])
 args = (out / "args.gn").read_text(encoding="utf-8")
 for key in ("is_cfi", "use_thin_lto", "thin_lto_enable_optimizations"):
-    if not re.search(rf"(?m)^{key}\\s*=\\s*false\\s*$", args):
+    if not re.search(rf"(?m)^{key}\s*=\s*false\s*$", args):
         raise SystemExit(f"Core 2 profile validation failed: {key}=false missing from args.gn")
 result = subprocess.run(
     ["ninja", "-C", str(out), "-t", "commands", "brave"],
